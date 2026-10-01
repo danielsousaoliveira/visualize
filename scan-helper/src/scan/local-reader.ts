@@ -1,4 +1,4 @@
-import { readdir, readFile, realpath } from "node:fs/promises";
+import { lstat, readdir, readFile, realpath } from "node:fs/promises";
 import { join, sep } from "node:path";
 import {
   DISCOVERED_ROOT_MARKERS,
@@ -20,6 +20,12 @@ function isInside(root: string, candidate: string): boolean {
 
 export const MAX_TREE_DIRECTORIES = 10_000;
 
+async function isContainedDirectory(root: string, absolutePath: string): Promise<boolean> {
+  const stats = await lstat(absolutePath);
+  if (!stats.isDirectory()) return false;
+  return isInside(root, await realpath(absolutePath));
+}
+
 function isTreeFileNeeded(relativePath: string, name: string): boolean {
   return relativePath === "" || DISCOVERED_ROOT_MARKERS.has(name.toLowerCase());
 }
@@ -30,15 +36,16 @@ export async function listLocalTree(
 ): Promise<RepoTreeEntry[]> {
   const tree: RepoTreeEntry[] = [];
   const directories = [""];
+  const realRoot = await realpath(root);
 
   for (let cursor = 0; cursor < directories.length; cursor += 1) {
     const relativePath = directories[cursor]!;
+    const absolutePath = relativePath ? join(realRoot, relativePath) : realRoot;
 
     let entries;
     try {
-      entries = await readdir(relativePath ? join(root, relativePath) : root, {
-        withFileTypes: true,
-      });
+      if (!(await isContainedDirectory(realRoot, absolutePath))) continue;
+      entries = await readdir(absolutePath, { withFileTypes: true });
     } catch {
       continue;
     }
