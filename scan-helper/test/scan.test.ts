@@ -65,6 +65,73 @@ describe("scan output never carries .env values", () => {
   });
 });
 
+describe("long-form compose ports", () => {
+  it("interpolates published and target from .env", async () => {
+    const root = folder("long-ports", {
+      ".env": "HOST_PORT=8081\nAPP_PORT=80",
+      "docker-compose.yml": [
+        "services:",
+        "  web:",
+        "    image: nginx",
+        "    ports:",
+        '      - target: "${APP_PORT}"',
+        '        published: "${HOST_PORT}"',
+      ].join("\n"),
+    });
+    const { services } = JSON.parse(await scan(root));
+    expect(services[0].ports).toEqual(["8081:80"]);
+  });
+});
+
+describe("nested framework markers", () => {
+  it("detects Rails from bin/rails and config/routes.rb", async () => {
+    const root = folder("rails", {
+      Gemfile: 'source "https://rubygems.org"\ngem "rails", "~> 7.1"\n',
+      "bin/rails": "",
+      "config/routes.rb": "",
+    });
+    expect((await resolveFromLocal(root)).stack).toBe("rails");
+  });
+
+  it("detects Phoenix from config/config.exs", async () => {
+    const root = folder("phoenix", {
+      "mix.exs": 'defmodule App.MixProject do\n  def project, do: [app: :app, deps: [{:phoenix, "~> 1.7"}]]\nend\n',
+      "config/config.exs": "",
+    });
+    expect((await resolveFromLocal(root)).stack).toBe("phoenix");
+  });
+});
+
+describe("python package manager", () => {
+  it("uses pip when pyproject.toml only configures tools", async () => {
+    const root = folder("py-tools", {
+      "pyproject.toml": "[tool.black]\nline-length = 100\n",
+      "requirements.txt": "flask\n",
+      "app.py": "",
+    });
+    const info = await resolveFromLocal(root);
+    expect(info.packageManager).toBe("pip");
+    expect(info.installCommand).toBe("pip install -r requirements.txt");
+  });
+
+  it("keeps uv when pyproject.toml declares a project", async () => {
+    const root = folder("py-project", {
+      "pyproject.toml": '[project]\nname = "svc"\ndependencies = ["flask"]\n',
+      "requirements.txt": "flask\n",
+    });
+    expect((await resolveFromLocal(root)).packageManager).toBe("uv");
+  });
+
+  it("keeps uv when uv.lock is present", async () => {
+    const root = folder("py-uv-lock", {
+      "pyproject.toml": "[tool.ruff]\n",
+      "uv.lock": "",
+      "requirements.txt": "flask\n",
+    });
+    expect((await resolveFromLocal(root)).packageManager).toBe("uv");
+  });
+});
+
 describe("local reader stays inside the scanned folder", () => {
   it("does not read a symlinked manifest that points outside", async () => {
     const outside = folder("outside", {
