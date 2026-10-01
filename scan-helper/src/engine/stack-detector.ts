@@ -90,7 +90,10 @@ export function detectPackageManager(
     // (a `[tool.poetry]` table means Poetry). Default to uv otherwise.
     const py = fileContents?.["pyproject.toml"];
     if (py && /\[tool\.poetry\]/.test(py)) return "poetry";
-    return "uv";
+    const toolConfigOnly =
+      py !== undefined && !/^\s*\[project\]/m.test(py) && !fileSet.has("uv.lock");
+    const hasOtherPythonManifest = fileSet.has("pipfile") || fileSet.has("requirements.txt");
+    if (!(toolConfigOnly && hasOtherPythonManifest)) return "uv";
   }
   if (fileSet.has("pipfile")) return "pipenv";
   if (fileSet.has("requirements.txt")) return "pip";
