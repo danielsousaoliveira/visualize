@@ -347,7 +347,7 @@ function toProjectInfo(
       services = withResolvedPorts(parsed.services, resolved.services);
       // Values the file demands (`${VAR:?…}`) that nothing here supplied. NOT an
       // error: the list to prompt for, not a reason to refuse the repo.
-      if (parsed.missingRequired.length > 0) missingRequiredEnv = parsed.missingRequired;
+      if (resolved.missingRequired.length > 0) missingRequiredEnv = resolved.missingRequired;
       // Keys we can't honor, so the caller can show what won't carry over.
       if (parsed.unsupported.length > 0) unsupportedCompose = parsed.unsupported;
     } catch (err) {
