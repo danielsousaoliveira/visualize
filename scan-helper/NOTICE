@@ -1,0 +1,11 @@
+visualize-scan
+
+This package contains code derived from openship
+(https://github.com/oblien/openship), licensed under the Apache License,
+Version 2.0. See LICENSE in this directory.
+
+Files under src/core, src/engine and src/scan, the tests under test/ and the
+fixture repos under fixtures/deploy were copied from openship and modified:
+platform, cloud, GitHub, database and platform-config overlay code was removed,
+imports were rewritten, and the local-folder reader was changed to stay inside
+the scanned folder.
