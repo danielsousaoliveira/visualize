@@ -321,10 +321,11 @@ export function composePortToSpec(
   port: Record<string, unknown>,
   interpolate: (value: string) => string = asIs,
 ): string | undefined {
-  const target = port.target ?? port.container_port;
+  const resolve = (value: unknown) => (typeof value === "string" ? interpolate(value) : value);
+  const target = resolve(port.target ?? port.container_port);
   if (target === undefined || target === null || target === "") return undefined;
 
-  const published = port.published ?? port.host_port;
+  const published = resolve(port.published ?? port.host_port);
   const proto = typeof port.protocol === "string" ? port.protocol.toLowerCase() : undefined;
   const suffix = proto && proto !== "tcp" ? `/${proto}` : "";
   const hostIp = typeof port.host_ip === "string" ? interpolate(port.host_ip) : undefined;
