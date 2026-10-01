@@ -65,6 +65,24 @@ describe("scan output never carries .env values", () => {
   });
 });
 
+describe("required compose variables", () => {
+  it("reports a required variable that .env defines as empty", async () => {
+    const root = folder("required-empty", {
+      ".env": "EMPTY=\n",
+      "docker-compose.yml": [
+        "services:",
+        "  db:",
+        "    image: postgres",
+        "    environment:",
+        "      A: ${EMPTY:?set EMPTY}",
+        "      B: ${ABSENT:?set ABSENT}",
+      ].join("\n"),
+    });
+    const info = await resolveFromLocal(root);
+    expect(info.missingRequiredEnv?.map((entry) => entry.variable)).toEqual(["EMPTY", "ABSENT"]);
+  });
+});
+
 describe("long-form compose ports", () => {
   it("interpolates published and target from .env", async () => {
     const root = folder("long-ports", {
@@ -160,5 +178,13 @@ describe("tree walk", () => {
 
     const bounded = (await listLocalTree(root, 3)).map((entry) => entry.path);
     expect(bounded).toEqual(["README.md"]);
+  });
+
+  it("does not descend into a directory symlinked outside the root", async () => {
+    const outside = folder("tree-outside", { "app/package.json": "{}" });
+    const root = folder("tree-linked", { "README.md": "" });
+    symlinkSync(join(outside, "app"), join(root, "linked"));
+    const paths = (await listLocalTree(root)).map((entry) => entry.path);
+    expect(paths).toEqual(["README.md", "linked"]);
   });
 });
