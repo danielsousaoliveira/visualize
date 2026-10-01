@@ -5,3 +5,4 @@ AGENTS.md
 .build/
 .swiftpm/
 build/
+node_modules/
