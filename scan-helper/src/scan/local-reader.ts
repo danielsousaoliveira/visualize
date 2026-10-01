@@ -1,6 +1,10 @@
 import { readdir, readFile, realpath } from "node:fs/promises";
 import { join, sep } from "node:path";
-import { isIgnoredRepoPath, type RepoTreeEntry } from "../engine/project-root-detector";
+import {
+  DISCOVERED_ROOT_MARKERS,
+  isIgnoredRepoPath,
+  type RepoTreeEntry,
+} from "../engine/project-root-detector";
 import type { RepoFile } from "../engine/stack-detector";
 
 export interface ProjectReader {
@@ -14,26 +18,43 @@ function isInside(root: string, candidate: string): boolean {
   return candidate === root || candidate.startsWith(root + sep);
 }
 
-async function listLocalTree(root: string): Promise<RepoTreeEntry[]> {
-  const tree: RepoTreeEntry[] = [];
+export const MAX_TREE_DIRECTORIES = 10_000;
 
-  const visit = async (absolutePath: string, relativePath = "") => {
-    const entries = await readdir(absolutePath, { withFileTypes: true });
+function isTreeFileNeeded(relativePath: string, name: string): boolean {
+  return relativePath === "" || DISCOVERED_ROOT_MARKERS.has(name.toLowerCase());
+}
+
+export async function listLocalTree(
+  root: string,
+  maxDirectories = MAX_TREE_DIRECTORIES,
+): Promise<RepoTreeEntry[]> {
+  const tree: RepoTreeEntry[] = [];
+  const directories = [""];
+
+  for (let cursor = 0; cursor < directories.length; cursor += 1) {
+    const relativePath = directories[cursor]!;
+
+    let entries;
+    try {
+      entries = await readdir(relativePath ? join(root, relativePath) : root, {
+        withFileTypes: true,
+      });
+    } catch {
+      continue;
+    }
 
     for (const entry of entries) {
       const nextRelativePath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
-      if (entry.isDirectory() && isIgnoredRepoPath(nextRelativePath)) {
-        continue;
-      }
-
-      tree.push({ path: nextRelativePath, type: entry.isDirectory() ? "dir" : "file" });
       if (entry.isDirectory()) {
-        await visit(join(absolutePath, entry.name), nextRelativePath);
+        if (directories.length < maxDirectories && !isIgnoredRepoPath(nextRelativePath)) {
+          directories.push(nextRelativePath);
+        }
+      } else if (isTreeFileNeeded(relativePath, entry.name)) {
+        tree.push({ path: nextRelativePath, type: "file" });
       }
     }
-  };
+  }
 
-  await visit(root);
   return tree;
 }
 

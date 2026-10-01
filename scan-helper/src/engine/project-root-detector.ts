@@ -62,7 +62,7 @@ const NESTED_APP_CATEGORIES = new Set(["frontend", "fullstack", "static"]);
  *     `detection.rootMarkers` in the core registry automatically flows here.
  *   - Workspace / monorepo project markers (Nx `project.json`) not tied to a single stack.
  */
-const DISCOVERED_ROOT_MARKERS = new Set<string>([
+export const DISCOVERED_ROOT_MARKERS = new Set<string>([
   ...STACK_ROOT_MARKERS,
   // Nx workspace project marker - every Nx project has its own project.json.
   "project.json",
