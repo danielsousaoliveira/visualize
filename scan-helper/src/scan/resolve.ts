@@ -278,6 +278,28 @@ export async function resolveFromLocal(dirPath: string): Promise<ProjectInfo> {
   });
 }
 
+const PORT_SPEC =
+  /^(?:(?:\d{1,3}(?:\.\d{1,3}){3}|\[[0-9A-Fa-f:]+\]):)?(?:\d{1,5}(?:-\d{1,5})?:)?\d{1,5}(?:-\d{1,5})?(?:\/(?:tcp|udp|sctp))?$/;
+
+function isPortSpec(value: string): boolean {
+  return PORT_SPEC.test(value);
+}
+
+function expressionsFor(names: string[]): Record<string, string> {
+  return Object.fromEntries(names.map((name) => [name, `\${${name}}`]));
+}
+
+function withResolvedPorts(
+  services: ComposeService[],
+  resolved: ComposeService[],
+): ComposeService[] {
+  const resolvedPorts = new Map(resolved.map((service) => [service.name, service.ports]));
+  return services.map((service) => {
+    const ports = resolvedPorts.get(service.name);
+    return ports && ports.every(isPortSpec) ? { ...service, ports } : service;
+  });
+}
+
 function toProjectInfo(
   repository: RepoMeta,
   projectRoot: ProjectRootSnapshot,
@@ -294,8 +316,11 @@ function toProjectInfo(
   let unsupportedCompose: ComposeUnsupportedField[] | undefined;
   if (composeContent && stack.projectType === "services") {
     try {
-      const parsed = parseComposeFile(composeContent, { envFileContent: composeEnvContent });
-      services = parsed.services;
+      const parsed = parseComposeFile(composeContent, {
+        env: expressionsFor(Object.keys(rootEnv)),
+      });
+      const resolved = parseComposeFile(composeContent, { envFileContent: composeEnvContent });
+      services = withResolvedPorts(parsed.services, resolved.services);
       // Values the file demands (`${VAR:?…}`) that nothing here supplied. NOT an
       // error: the list to prompt for, not a reason to refuse the repo.
       if (parsed.missingRequired.length > 0) missingRequiredEnv = parsed.missingRequired;
