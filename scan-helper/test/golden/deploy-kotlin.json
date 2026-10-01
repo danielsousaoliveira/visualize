@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "kotlin",
+    "rootPath": "/fixtures/deploy/kotlin",
+    "gitBranch": null,
+    "type": "app"
+  },
+  "services": [
+    {
+      "id": ".",
+      "name": "kotlin",
+      "kind": "app",
+      "rootDirectory": ".",
+      "stackId": "kotlin",
+      "category": "backend",
+      "packageManager": "gradle",
+      "installCommand": "gradle dependencies",
+      "buildCommand": "gradle build -x test",
+      "startCommand": "java -jar build/libs/*.jar",
+      "port": 8080,
+      "hasDockerfile": false
+    }
+  ],
+  "composeFiles": [],
+  "composeServices": [],
+  "envRequirements": [],
+  "infra": [],
+  "connections": [],
+  "warnings": []
+}

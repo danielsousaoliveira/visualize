@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "hello-node",
+    "rootPath": "/fixtures/deploy/node",
+    "gitBranch": null,
+    "type": "app"
+  },
+  "services": [
+    {
+      "id": ".",
+      "name": "hello-node",
+      "kind": "app",
+      "rootDirectory": ".",
+      "stackId": "node",
+      "category": "backend",
+      "packageManager": "npm",
+      "installCommand": "npm i --force",
+      "buildCommand": null,
+      "startCommand": "npm run start",
+      "port": 3000,
+      "hasDockerfile": false
+    }
+  ],
+  "composeFiles": [],
+  "composeServices": [],
+  "envRequirements": [],
+  "infra": [],
+  "connections": [],
+  "warnings": []
+}

@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "visualize scan result",
+  "description": "Output of visualize-scan. Adding a field keeps schemaVersion; renaming or removing one bumps it. Environment values never appear, only names. Paths are relative to the scanned root, except project.rootPath.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "project",
+    "services",
+    "composeFiles",
+    "composeServices",
+    "envRequirements",
+    "infra",
+    "connections",
+    "warnings"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "rootPath", "gitBranch", "type"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "rootPath": { "type": "string", "pattern": "^/" },
+        "gitBranch": { "type": ["string", "null"] },
+        "type": { "enum": ["app", "monorepo", "services", "docker"] }
+      }
+    },
+    "services": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/service" }
+    },
+    "composeFiles": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/relativePath" }
+    },
+    "composeServices": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/composeService" }
+    },
+    "envRequirements": { "type": "array", "maxItems": 0 },
+    "infra": { "type": "array", "maxItems": 0 },
+    "connections": { "type": "array", "maxItems": 0 },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "not": { "pattern": "^/" }
+    },
+    "nullableCommand": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "rootDirectory",
+        "stackId",
+        "category",
+        "packageManager",
+        "installCommand",
+        "buildCommand",
+        "startCommand",
+        "port",
+        "hasDockerfile"
+      ],
+      "properties": {
+        "id": {
+          "description": "The relative root directory for an app service, compose:<name> for a compose service.",
+          "type": "string",
+          "minLength": 1
+        },
+        "name": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["app", "compose"] },
+        "rootDirectory": { "$ref": "#/$defs/relativePath" },
+        "stackId": { "type": ["string", "null"], "minLength": 1 },
+        "category": { "type": ["string", "null"], "minLength": 1 },
+        "packageManager": { "type": ["string", "null"], "minLength": 1 },
+        "installCommand": { "$ref": "#/$defs/nullableCommand" },
+        "buildCommand": { "$ref": "#/$defs/nullableCommand" },
+        "startCommand": { "$ref": "#/$defs/nullableCommand" },
+        "port": { "type": ["integer", "null"], "minimum": 1, "maximum": 65535 },
+        "hasDockerfile": {
+          "description": "For a compose service, true only when it builds from a local context that holds its Dockerfile.",
+          "type": "boolean"
+        }
+      }
+    },
+    "portMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host", "container"],
+      "properties": {
+        "host": {
+          "description": "Published host port, or an unresolved ${VAR} expression. Null when the port is not published to a fixed host port.",
+          "type": ["string", "null"],
+          "minLength": 1
+        },
+        "container": { "type": "string", "minLength": 1 }
+      }
+    },
+    "composeService": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "image", "buildContext", "ports", "dependsOn", "environment"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "image": { "type": ["string", "null"], "minLength": 1 },
+        "buildContext": { "type": ["string", "null"], "minLength": 1 },
+        "ports": { "type": "array", "items": { "$ref": "#/$defs/portMapping" } },
+        "dependsOn": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "environment": {
+          "description": "Variable names only. Values never appear.",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

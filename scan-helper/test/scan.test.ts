@@ -3,8 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { listLocalTree } from "../src/scan/local-reader";
-import { toScanOutput } from "../src/scan/output";
 import { resolveFromLocal } from "../src/scan/resolve";
+import { scanFolder } from "../src/scan/scan-folder";
 
 const workspace = mkdtempSync(join(tmpdir(), "visualize-scan-"));
 
@@ -20,7 +20,7 @@ function folder(name: string, files: Record<string, string>): string {
 }
 
 async function scan(root: string): Promise<string> {
-  return JSON.stringify(toScanOutput(await resolveFromLocal(root)));
+  return JSON.stringify(await scanFolder(root));
 }
 
 describe("scan output never carries .env values", () => {
@@ -49,19 +49,16 @@ describe("scan output never carries .env values", () => {
   it("keeps the expression in interpolated fields", async () => {
     const output = await scan(root);
     expect(output).not.toContain(SECRET);
-    const api = JSON.parse(output).services.find((s: { name: string }) => s.name === "api");
+    const api = JSON.parse(output).composeServices.find((s: { name: string }) => s.name === "api");
     expect(api.image).toBe("${REGISTRY}/api:latest");
-    expect(api.command).toContain("${TOKEN}");
-    expect(api.volumes).toEqual(["${DATA}:/data"]);
-    expect(api.environmentKeys).toEqual(["API_TOKEN"]);
-    expect(api.buildArgKeys).toEqual(["K"]);
+    expect(api.environment).toEqual(["API_TOKEN"]);
   });
 
   it("resolves host ports only when they are plain port specs", async () => {
-    const { services } = JSON.parse(await scan(root));
-    const byName = Object.fromEntries(services.map((s: { name: string }) => [s.name, s]));
-    expect(byName.api.ports).toEqual(["8081:8080"]);
-    expect(byName.worker.ports).toEqual(["${BAD_PORT}:9000"]);
+    const { composeServices } = JSON.parse(await scan(root));
+    const byName = Object.fromEntries(composeServices.map((s: { name: string }) => [s.name, s]));
+    expect(byName.api.ports).toEqual([{ host: "8081", container: "8080" }]);
+    expect(byName.worker.ports).toEqual([{ host: "${BAD_PORT}", container: "9000" }]);
   });
 });
 
@@ -96,8 +93,8 @@ describe("long-form compose ports", () => {
         '        published: "${HOST_PORT}"',
       ].join("\n"),
     });
-    const { services } = JSON.parse(await scan(root));
-    expect(services[0].ports).toEqual(["8081:80"]);
+    const { composeServices } = JSON.parse(await scan(root));
+    expect(composeServices[0].ports).toEqual([{ host: "8081", container: "80" }]);
   });
 });
 

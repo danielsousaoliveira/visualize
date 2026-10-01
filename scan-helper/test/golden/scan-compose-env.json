@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "compose-env",
+    "rootPath": "/fixtures/scan/compose-env",
+    "gitBranch": null,
+    "type": "services"
+  },
+  "services": [
+    {
+      "id": "compose:api",
+      "name": "api",
+      "kind": "compose",
+      "rootDirectory": "api",
+      "stackId": "express",
+      "category": "backend",
+      "packageManager": "npm",
+      "installCommand": "npm i --force",
+      "buildCommand": null,
+      "startCommand": "npm run start",
+      "port": 8080,
+      "hasDockerfile": true
+    },
+    {
+      "id": "compose:db",
+      "name": "db",
+      "kind": "compose",
+      "rootDirectory": ".",
+      "stackId": null,
+      "category": null,
+      "packageManager": null,
+      "installCommand": null,
+      "buildCommand": null,
+      "startCommand": null,
+      "port": 5432,
+      "hasDockerfile": false
+    },
+    {
+      "id": "compose:cache",
+      "name": "cache",
+      "kind": "compose",
+      "rootDirectory": ".",
+      "stackId": null,
+      "category": null,
+      "packageManager": null,
+      "installCommand": null,
+      "buildCommand": null,
+      "startCommand": null,
+      "port": 6379,
+      "hasDockerfile": false
+    }
+  ],
+  "composeFiles": [
+    "docker-compose.yml"
+  ],
+  "composeServices": [
+    {
+      "name": "api",
+      "image": null,
+      "buildContext": "api",
+      "ports": [
+        {
+          "host": "8088",
+          "container": "8080"
+        }
+      ],
+      "dependsOn": [
+        "db",
+        "cache"
+      ],
+      "environment": [
+        "DATABASE_URL",
+        "API_SECRET",
+        "LOG_LEVEL"
+      ]
+    },
+    {
+      "name": "db",
+      "image": "postgres:16",
+      "buildContext": null,
+      "ports": [
+        {
+          "host": "5432",
+          "container": "5432"
+        }
+      ],
+      "dependsOn": [],
+      "environment": [
+        "POSTGRES_PASSWORD",
+        "POSTGRES_USER"
+      ]
+    },
+    {
+      "name": "cache",
+      "image": "redis:7",
+      "buildContext": null,
+      "ports": [
+        {
+          "host": null,
+          "container": "6379"
+        }
+      ],
+      "dependsOn": [],
+      "environment": []
+    }
+  ],
+  "envRequirements": [],
+  "infra": [],
+  "connections": [],
+  "warnings": []
+}

@@ -1,40 +1,211 @@
+import { posix } from "node:path";
 import type { ComposeService } from "../engine/compose-parser";
-import type { ProjectInfo } from "./resolve";
+import { buildProjectRootSnapshot, type MonorepoApp } from "../engine/project-root-detector";
+import type { StackResult } from "../engine/stack-detector";
+import {
+  SCHEMA_VERSION,
+  type ScanComposeService,
+  type ScanPortMapping,
+  type ScanResult,
+  type ScanService,
+} from "./contract";
+import type { ProjectReader } from "./local-reader";
+import { readProjectSnapshot, type ProjectInfo } from "./resolve";
 
-type ServiceOutput = Omit<
-  ComposeService,
-  "environment" | "environmentTemplates" | "environmentMeta" | "buildArgs" | "advanced"
-> & {
-  environmentKeys: string[];
-  buildArgKeys?: string[];
-};
+const DOCKERFILE = "Dockerfile";
 
-export type ScanOutput = Omit<ProjectInfo, "rootEnv" | "services"> & {
-  rootEnvKeys?: string[];
-  services?: ServiceOutput[];
-};
+function toRelativeDirectory(path: string): string {
+  return posix.normalize(path || ".").replace(/(.)\/+$/, "$1");
+}
 
-function withoutEnvValues(service: ComposeService): ServiceOutput {
-  const {
-    environment,
-    environmentTemplates: _templates,
-    environmentMeta: _meta,
-    buildArgs,
-    advanced: _advanced,
-    ...rest
-  } = service;
+function isLocalPath(path: string): boolean {
+  return !path.includes("://") && !path.includes("$") && !path.startsWith("git@");
+}
+
+function isInsideRoot(relativePath: string): boolean {
+  return relativePath !== ".." && !relativePath.startsWith("../") && !posix.isAbsolute(relativePath);
+}
+
+function splitOutsideBrackets(value: string): string[] {
+  const parts = [""];
+  let depth = 0;
+  for (const char of value) {
+    if (char === "{" || char === "[") depth += 1;
+    if ((char === "}" || char === "]") && depth > 0) depth -= 1;
+    if (char === ":" && depth === 0) parts.push("");
+    else parts[parts.length - 1] += char;
+  }
+  return parts;
+}
+
+export function toPortMapping(spec: string): ScanPortMapping {
+  const parts = splitOutsideBrackets(spec.replace(/\/(?:tcp|udp|sctp)$/i, ""));
+  const container = parts[parts.length - 1]!;
+  const host = parts.length > 1 ? parts[parts.length - 2]! : "";
+  return { host: host || null, container };
+}
+
+function containerPort(ports: ScanPortMapping[]): number | null {
+  const first = ports[0]?.container;
+  return first && /^\d+$/.test(first) ? Number(first) : null;
+}
+
+function knownPackageManager(packageManager: string): string | null {
+  return packageManager === "unknown" ? null : packageManager;
+}
+
+async function fileExists(reader: ProjectReader, path: string): Promise<boolean> {
+  return (await reader.readText(path)) !== undefined;
+}
+
+async function detectStackIn(
+  reader: ProjectReader,
+  directory: string,
+): Promise<StackResult | undefined> {
+  const snapshot = await readProjectSnapshot(reader, directory === "." ? "" : directory);
+  return snapshot.files.length > 0 ? buildProjectRootSnapshot(snapshot).stack : undefined;
+}
+
+function serviceRecipe(source: {
+  stack: string;
+  category: string;
+  packageManager: string;
+  installCommand: string;
+  buildCommand: string;
+  startCommand: string;
+}) {
   return {
-    ...rest,
-    environmentKeys: Object.keys(environment),
-    ...(buildArgs && { buildArgKeys: Object.keys(buildArgs) }),
+    stackId: source.stack,
+    category: source.category,
+    packageManager: knownPackageManager(source.packageManager),
+    installCommand: source.installCommand || null,
+    buildCommand: source.buildCommand || null,
+    startCommand: source.startCommand || null,
   };
 }
 
-export function toScanOutput(info: ProjectInfo): ScanOutput {
-  const { rootEnv, services, ...rest } = info;
+async function appService(
+  reader: ProjectReader,
+  id: string,
+  name: string,
+  source: MonorepoApp | ProjectInfo,
+): Promise<ScanService> {
+  const rootDirectory = toRelativeDirectory(source.rootDirectory);
   return {
-    ...rest,
-    ...(rootEnv && { rootEnvKeys: Object.keys(rootEnv) }),
-    ...(services && { services: services.map(withoutEnvValues) }),
+    id,
+    name,
+    kind: "app",
+    rootDirectory,
+    ...serviceRecipe(source),
+    port: source.port,
+    hasDockerfile: await fileExists(reader, posix.join(rootDirectory, DOCKERFILE)),
+  };
+}
+
+function buildContext(service: ComposeService, composeDirectory: string): string | null {
+  if (!service.build) return null;
+  return isLocalPath(service.build)
+    ? toRelativeDirectory(posix.join(composeDirectory, service.build))
+    : service.build;
+}
+
+async function composeService(
+  reader: ProjectReader,
+  service: ComposeService,
+  composeDirectory: string,
+): Promise<ScanService> {
+  const context = buildContext(service, composeDirectory);
+  const readable = context !== null && isLocalPath(context) && isInsideRoot(context);
+  const stack = readable ? await detectStackIn(reader, context) : undefined;
+  const dockerfile = posix.join(context ?? ".", service.dockerfile ?? DOCKERFILE);
+  return {
+    id: `compose:${service.name}`,
+    name: service.name,
+    kind: "compose",
+    rootDirectory: readable ? context : composeDirectory,
+    ...(stack
+      ? serviceRecipe(stack)
+      : {
+          stackId: null,
+          category: null,
+          packageManager: null,
+          installCommand: null,
+          buildCommand: null,
+          startCommand: null,
+        }),
+    port: containerPort(service.ports.map(toPortMapping)),
+    hasDockerfile: readable && (await fileExists(reader, dockerfile)),
+  };
+}
+
+function toComposeService(service: ComposeService, composeDirectory: string): ScanComposeService {
+  return {
+    name: service.name,
+    image: service.image ?? null,
+    buildContext: buildContext(service, composeDirectory),
+    ports: service.ports.map(toPortMapping),
+    dependsOn: service.dependsOn,
+    environment: Object.keys(service.environment),
+  };
+}
+
+function collectWarnings(info: ProjectInfo): string[] {
+  const ignoredComposeFiles = (info.composeFiles ?? []).filter(
+    (file) => file !== info.composeFileRead,
+  );
+  return [
+    ...(info.composeFileRead && ignoredComposeFiles.length > 0
+      ? [`Only ${info.composeFileRead} was read; ${ignoredComposeFiles.join(", ")} ignored.`]
+      : []),
+    ...(info.missingRequiredEnv ?? []).map(
+      ({ variable }) => `Compose variable ${variable} is required but has no value.`,
+    ),
+    ...(info.unsupportedCompose ?? []).map(
+      ({ service, reason }) => `Service "${service}": ${reason}`,
+    ),
+  ];
+}
+
+async function collectServices(
+  info: ProjectInfo,
+  reader: ProjectReader,
+  composeDirectory: string,
+): Promise<ScanService[]> {
+  if (info.services) {
+    return Promise.all(
+      info.services.map((service) => composeService(reader, service, composeDirectory)),
+    );
+  }
+  if (info.monorepoApps) {
+    return Promise.all(
+      info.monorepoApps.map((app) =>
+        appService(reader, toRelativeDirectory(app.rootDirectory), app.name, app),
+      ),
+    );
+  }
+  return [
+    await appService(reader, toRelativeDirectory(info.rootDirectory), info.repository.name, info),
+  ];
+}
+
+export async function toScanResult(info: ProjectInfo, reader: ProjectReader): Promise<ScanResult> {
+  const composeDirectory = toRelativeDirectory(posix.dirname(info.composeFileRead ?? "."));
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    project: {
+      name: info.repository.name,
+      rootPath: info.repository.full_name,
+      gitBranch: info.repository.selected_branch ?? null,
+      type: info.projectType,
+    },
+    services: await collectServices(info, reader, composeDirectory),
+    composeFiles: info.composeFiles ?? [],
+    composeServices: (info.services ?? []).map((service) =>
+      toComposeService(service, composeDirectory),
+    ),
+    envRequirements: [],
+    infra: [],
+    connections: [],
+    warnings: collectWarnings(info),
   };
 }

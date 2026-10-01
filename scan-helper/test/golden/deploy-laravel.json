@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "laravel",
+    "rootPath": "/fixtures/deploy/laravel",
+    "gitBranch": null,
+    "type": "app"
+  },
+  "services": [
+    {
+      "id": ".",
+      "name": "laravel",
+      "kind": "app",
+      "rootDirectory": ".",
+      "stackId": "laravel",
+      "category": "fullstack",
+      "packageManager": "composer",
+      "installCommand": "composer install --no-dev --optimize-autoloader",
+      "buildCommand": null,
+      "startCommand": "SERVER_NAME=\":$PORT\" exec frankenphp run --config /etc/frankenphp/Caddyfile --adapter caddyfile",
+      "port": 8000,
+      "hasDockerfile": false
+    }
+  ],
+  "composeFiles": [],
+  "composeServices": [],
+  "envRequirements": [],
+  "infra": [],
+  "connections": [],
+  "warnings": []
+}
