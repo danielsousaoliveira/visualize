@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "docker",
+    "rootPath": "/fixtures/scan/docker",
+    "gitBranch": null,
+    "type": "docker"
+  },
+  "services": [
+    {
+      "id": ".",
+      "name": "docker",
+      "kind": "app",
+      "rootDirectory": ".",
+      "stackId": "docker",
+      "category": "docker",
+      "packageManager": null,
+      "installCommand": null,
+      "buildCommand": null,
+      "startCommand": null,
+      "port": 80,
+      "hasDockerfile": true
+    }
+  ],
+  "composeFiles": [],
+  "composeServices": [],
+  "envRequirements": [],
+  "infra": [],
+  "connections": [],
+  "warnings": []
+}

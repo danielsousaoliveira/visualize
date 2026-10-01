@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "go",
+    "rootPath": "/fixtures/deploy/go",
+    "gitBranch": null,
+    "type": "app"
+  },
+  "services": [
+    {
+      "id": ".",
+      "name": "go",
+      "kind": "app",
+      "rootDirectory": ".",
+      "stackId": "go",
+      "category": "backend",
+      "packageManager": "go",
+      "installCommand": "go mod download",
+      "buildCommand": "go build -o app .",
+      "startCommand": "./app",
+      "port": 8080,
+      "hasDockerfile": false
+    }
+  ],
+  "composeFiles": [],
+  "composeServices": [],
+  "envRequirements": [],
+  "infra": [],
+  "connections": [],
+  "warnings": []
+}

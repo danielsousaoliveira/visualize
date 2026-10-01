@@ -1,0 +1,24 @@
+services:
+  api:
+    build:
+      context: ./api
+    ports:
+      - "${API_PORT:-8080}:8080"
+    depends_on:
+      - db
+      - cache
+    environment:
+      DATABASE_URL: postgres://app:fixture-db-password@db:5432/app
+      API_SECRET: ${API_SECRET}
+      LOG_LEVEL: debug
+  db:
+    image: postgres:16
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      - POSTGRES_PASSWORD=fixture-db-password
+      - POSTGRES_USER=app
+  cache:
+    image: redis:7
+    ports:
+      - "6379"

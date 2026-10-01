@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "python-fastapi",
+    "rootPath": "/fixtures/deploy/python-fastapi",
+    "gitBranch": null,
+    "type": "app"
+  },
+  "services": [
+    {
+      "id": ".",
+      "name": "python-fastapi",
+      "kind": "app",
+      "rootDirectory": ".",
+      "stackId": "fastapi",
+      "category": "backend",
+      "packageManager": "pip",
+      "installCommand": "pip install -r requirements.txt",
+      "buildCommand": "pip install -r requirements.txt",
+      "startCommand": "uvicorn main:app --host 0.0.0.0 --port 8000",
+      "port": 8000,
+      "hasDockerfile": false
+    }
+  ],
+  "composeFiles": [],
+  "composeServices": [],
+  "envRequirements": [],
+  "infra": [],
+  "connections": [],
+  "warnings": []
+}

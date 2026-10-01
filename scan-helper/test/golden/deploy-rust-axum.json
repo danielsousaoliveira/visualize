@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "rust-axum",
+    "rootPath": "/fixtures/deploy/rust-axum",
+    "gitBranch": null,
+    "type": "app"
+  },
+  "services": [
+    {
+      "id": ".",
+      "name": "rust-axum",
+      "kind": "app",
+      "rootDirectory": ".",
+      "stackId": "axum",
+      "category": "backend",
+      "packageManager": "cargo",
+      "installCommand": null,
+      "buildCommand": "cargo build --release",
+      "startCommand": "./target/release/hello_axum",
+      "port": 3000,
+      "hasDockerfile": false
+    }
+  ],
+  "composeFiles": [],
+  "composeServices": [],
+  "envRequirements": [],
+  "infra": [],
+  "connections": [],
+  "warnings": []
+}

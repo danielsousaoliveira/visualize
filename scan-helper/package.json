@@ -10,13 +10,15 @@
   "scripts": {
     "scan": "bun run src/cli.ts",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "golden": "UPDATE_GOLDEN=1 bun test test/contract.test.ts"
   },
   "dependencies": {
     "yaml": "^2.8.2"
   },
   "devDependencies": {
     "@types/bun": "^1.3.0",
+    "ajv": "^8.20.0",
     "typescript": "^5.9.3"
   }
 }
