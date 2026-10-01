@@ -109,13 +109,37 @@ function joinProjectPath(rootDirectory: string, name: string): string {
   return normalizedRootDirectory ? `${normalizedRootDirectory}/${name}` : name;
 }
 
+const NESTED_MARKERS: Record<string, string[]> = {
+  bin: ["rails"],
+  config: ["routes.rb", "config.exs"],
+};
+
+async function listNestedMarkers(
+  reader: ProjectReader,
+  rootDirectory: string,
+  topLevel: RepoFile[],
+): Promise<RepoFile[]> {
+  const found = await Promise.all(
+    Object.entries(NESTED_MARKERS)
+      .filter(([dir]) => topLevel.some((file) => file.type === "dir" && file.name === dir))
+      .map(async ([dir, names]) => {
+        const entries = await reader.listDirectory(joinProjectPath(rootDirectory, dir));
+        return entries
+          .filter((entry) => entry.type !== "dir" && names.includes(entry.name.toLowerCase()))
+          .map((entry) => ({ name: `${dir}/${entry.name}`, type: "file" }));
+      }),
+  );
+  return found.flat();
+}
+
 async function readProjectSnapshot(
   reader: ProjectReader,
   rootDirectory = "",
   source: ProjectRootSnapshotInput["source"] = "root",
 ): Promise<ProjectRootSnapshotInput> {
   const normalizedRootDirectory = normalizeProjectRootDirectory(rootDirectory);
-  const files = await reader.listDirectory(normalizedRootDirectory);
+  const topLevel = await reader.listDirectory(normalizedRootDirectory);
+  const files = [...topLevel, ...(await listNestedMarkers(reader, normalizedRootDirectory, topLevel))];
   const packageJson = await reader.readJson(
     joinProjectPath(normalizedRootDirectory, "package.json"),
   );
