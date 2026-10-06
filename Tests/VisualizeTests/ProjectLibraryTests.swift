@@ -60,6 +60,24 @@ struct ProjectLibraryTests {
         #expect(relaunched.libraryError == nil)
     }
 
+    @Test func scansProjectsLeftWithoutAResultOnRelaunch() async throws {
+        defer { stub.remove() }
+        let unscanned = Project(folder: try makeFolder("alpha"))
+        let missing = Project(folder: stub.file("repos/gone"))
+        let scanned = Project(folder: try makeFolder("beta"), lastResult: try ScanDecoder.decode(Data(contentsOf: Self.nodeGolden)))
+        try store.save([unscanned, missing, scanned])
+        try respond(with: Self.composeGolden)
+
+        let relaunched = makeState()
+        await relaunched.scanProjectsWithoutResults()
+
+        #expect(relaunched.project(unscanned.id)?.lastResult?.project.type == .services)
+        #expect(relaunched.project(missing.id)?.lastResult == nil)
+        #expect(relaunched.scanErrors[missing.id] == nil)
+        #expect(relaunched.project(scanned.id)?.lastResult?.project.name == "hello-node")
+        #expect(try store.load().first?.lastResult?.project.type == .services)
+    }
+
     @Test func selectsTheExistingEntryForADuplicateFolder() async throws {
         defer { stub.remove() }
         let state = makeState()

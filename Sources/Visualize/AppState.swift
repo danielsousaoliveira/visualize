@@ -63,6 +63,15 @@ final class AppState {
         }
     }
 
+    func scanProjectsWithoutResults() async {
+        let pending = projects.filter { $0.lastResult == nil && $0.folderExists }.map(\.id)
+        await withTaskGroup(of: Void.self) { group in
+            for id in pending {
+                group.addTask { await self.rescan(id) }
+            }
+        }
+    }
+
     func locate(_ id: Project.ID, at folder: URL) async {
         let path = Project.canonicalPath(of: folder)
         if let other = projects.first(where: { $0.folderPath == path && $0.id != id }) {
