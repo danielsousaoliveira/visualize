@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 import { resolve } from "node:path";
-import { toScanOutput } from "./scan/output";
-import { resolveFromLocal } from "./scan/resolve";
+import { scanFolder } from "./scan/scan-folder";
 
 const USAGE = "usage: visualize-scan <folder>";
 
@@ -23,8 +22,7 @@ async function main(args: string[]): Promise<number> {
 
   const folder = resolve(args[0]!);
   try {
-    const info = await resolveFromLocal(folder);
-    process.stdout.write(`${JSON.stringify(toScanOutput(info), null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify(await scanFolder(folder), null, 2)}\n`);
     return 0;
   } catch (error) {
     process.stderr.write(`visualize-scan: ${describeError(error, folder)}\n`);

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "springboot",
+    "rootPath": "/fixtures/deploy/springboot",
+    "gitBranch": null,
+    "type": "app"
+  },
+  "services": [
+    {
+      "id": ".",
+      "name": "springboot",
+      "kind": "app",
+      "rootDirectory": ".",
+      "stackId": "springboot",
+      "category": "backend",
+      "packageManager": "maven",
+      "installCommand": "mvn dependency:resolve",
+      "buildCommand": "mvn clean package -DskipTests",
+      "startCommand": "java -jar target/*.jar",
+      "port": 8080,
+      "hasDockerfile": false
+    }
+  ],
+  "composeFiles": [],
+  "composeServices": [],
+  "envRequirements": [],
+  "infra": [],
+  "connections": [],
+  "warnings": []
+}

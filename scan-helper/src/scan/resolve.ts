@@ -1,5 +1,6 @@
 import { stat, realpath } from "node:fs/promises";
 import { basename } from "node:path";
+import { readGitBranch } from "./git-branch";
 import { MANIFEST_FILES, type RepoFile, type StackResult } from "../engine/stack-detector";
 import {
   blockingComposeFields,
@@ -76,6 +77,8 @@ export interface ProjectInfo {
   productionPaths: string[];
   port: number;
   services?: ComposeService[];
+  composeFiles?: string[];
+  composeFileRead?: string;
   /** Compose variables the file marks mandatory that no `.env` value
    *  satisfied. Absent when there are none. */
   missingRequiredEnv?: ComposeMissingVariable[];
@@ -132,7 +135,7 @@ async function listNestedMarkers(
   return found.flat();
 }
 
-async function readProjectSnapshot(
+export async function readProjectSnapshot(
   reader: ProjectReader,
   rootDirectory = "",
   source: ProjectRootSnapshotInput["source"] = "root",
@@ -247,11 +250,11 @@ async function readComposeText(
   reader: ProjectReader,
   rootDirectory: string,
   names: string[],
-): Promise<string | undefined> {
+): Promise<{ name: string; content: string } | undefined> {
   for (const name of names) {
-    const composeContent = await readProjectText(reader, rootDirectory, name);
-    if (composeContent) {
-      return composeContent;
+    const content = await readProjectText(reader, rootDirectory, name);
+    if (content) {
+      return { name, content };
     }
   }
 
@@ -273,12 +276,26 @@ export async function resolveFromReader(
   const composeFiles = presentComposeFiles(selected.files, COMPOSE_FILES);
 
   // `.env` sits next to the compose file, which is what compose itself resolves against.
-  const [composeContent, composeEnvContent] = await Promise.all([
+  const [compose, composeEnvContent] = await Promise.all([
     readComposeText(reader, selected.rootDirectory, composeFiles),
     readProjectText(reader, selected.rootDirectory, ".env"),
   ]);
 
-  return toProjectInfo(repository, selected, composeContent, composeEnvContent, monorepo, routing);
+  const info = toProjectInfo(
+    repository,
+    selected,
+    compose?.content,
+    composeEnvContent,
+    monorepo,
+    routing,
+  );
+  if (composeFiles.length === 0) return info;
+  const toRootPath = (name: string) => joinProjectPath(selected.rootDirectory, name);
+  return {
+    ...info,
+    composeFiles: composeFiles.map(toRootPath),
+    ...(compose && { composeFileRead: toRootPath(compose.name) }),
+  };
 }
 
 export async function resolveFromLocal(dirPath: string): Promise<ProjectInfo> {
@@ -291,6 +308,7 @@ export async function resolveFromLocal(dirPath: string): Promise<ProjectInfo> {
   const reader = createLocalReader(root);
   const rootPackageJson = await reader.readJson("package.json");
   const name = typeof rootPackageJson?.name === "string" ? rootPackageJson.name : basename(root);
+  const branch = await readGitBranch(root);
 
   return resolveFromReader(reader, {
     name,
@@ -298,7 +316,7 @@ export async function resolveFromLocal(dirPath: string): Promise<ProjectInfo> {
     owner: { login: "local" },
     private: true,
     default_branch: "main",
-    selected_branch: "main",
+    ...(branch && { selected_branch: branch }),
   });
 }
 
@@ -381,9 +399,7 @@ function toProjectInfo(
     stack: stack.stack,
     projectType,
     category: stack.category,
-    // detectPackageManager()'s "unknown" fallback (no manifest anywhere in this
-    // root) is an internal sentinel, not a real package manager.
-    packageManager: stack.packageManager === "unknown" ? "npm" : stack.packageManager,
+    packageManager: stack.packageManager,
     buildCommand: stack.buildCommand,
     installCommand: stack.installCommand,
     startCommand: stack.startCommand,

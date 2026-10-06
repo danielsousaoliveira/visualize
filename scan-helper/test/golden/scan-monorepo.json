@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "fixture-monorepo",
+    "rootPath": "/fixtures/scan/monorepo",
+    "gitBranch": null,
+    "type": "monorepo"
+  },
+  "services": [
+    {
+      "id": "apps/web",
+      "name": "web",
+      "kind": "app",
+      "rootDirectory": "apps/web",
+      "stackId": "node",
+      "category": "backend",
+      "packageManager": "npm",
+      "installCommand": "npm i --force",
+      "buildCommand": "npm run build",
+      "startCommand": "npm run start",
+      "port": 3000,
+      "hasDockerfile": false
+    },
+    {
+      "id": "apps/api",
+      "name": "api",
+      "kind": "app",
+      "rootDirectory": "apps/api",
+      "stackId": "express",
+      "category": "backend",
+      "packageManager": "npm",
+      "installCommand": "npm i --force",
+      "buildCommand": null,
+      "startCommand": "npm run start",
+      "port": 3000,
+      "hasDockerfile": true
+    }
+  ],
+  "composeFiles": [],
+  "composeServices": [],
+  "envRequirements": [],
+  "infra": [],
+  "connections": [],
+  "warnings": []
+}

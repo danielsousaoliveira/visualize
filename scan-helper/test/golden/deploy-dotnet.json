@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "dotnet",
+    "rootPath": "/fixtures/deploy/dotnet",
+    "gitBranch": null,
+    "type": "app"
+  },
+  "services": [
+    {
+      "id": ".",
+      "name": "dotnet",
+      "kind": "app",
+      "rootDirectory": ".",
+      "stackId": "dotnet",
+      "category": "backend",
+      "packageManager": "dotnet",
+      "installCommand": "dotnet restore",
+      "buildCommand": "dotnet publish -c Release -o publish",
+      "startCommand": "ASPNETCORE_URLS=http://0.0.0.0:$PORT dotnet publish/HelloApi.dll",
+      "port": 5000,
+      "hasDockerfile": false
+    }
+  ],
+  "composeFiles": [],
+  "composeServices": [],
+  "envRequirements": [],
+  "infra": [],
+  "connections": [],
+  "warnings": []
+}
