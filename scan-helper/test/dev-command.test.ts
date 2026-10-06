@@ -25,6 +25,8 @@ function derive(stackId: StackId, overrides: Partial<DevCommandInput> = {}) {
     startCommand: null,
     port: null,
     workingDirectory: ".",
+    fileNames: [],
+    gradleBuildScript: null,
     ...overrides,
   });
 }
@@ -88,17 +90,24 @@ describe("dev command for fixtures", () => {
     ]);
   });
 
-  it("falls back to the start command for Spring Boot and .NET", async () => {
+  it("runs Spring Boot through its Maven plugin", async () => {
     expect(await onlyDevCommand("deploy", "springboot")).toEqual({
-      argv: ["java", "-jar", "target/*.jar"],
+      argv: ["mvn", "spring-boot:run", "-Dspring-boot.run.arguments=--server.port=8080"],
       workingDirectory: ".",
-      source: "fallback-start",
+      source: "stack-default",
     });
+  });
+
+  it("runs .NET with dotnet run on the detected port", async () => {
     expect(await onlyDevCommand("deploy", "dotnet")).toEqual({
-      argv: ["env", "ASPNETCORE_URLS=http://0.0.0.0:$PORT", "dotnet", "publish/HelloApi.dll"],
+      argv: ["dotnet", "run", "--", "--urls", "http://localhost:5000"],
       workingDirectory: ".",
-      source: "fallback-start",
+      source: "stack-default",
     });
+  });
+
+  it("runs a Kotlin app through the Gradle application plugin", async () => {
+    expect((await onlyDevCommand("deploy", "kotlin"))?.argv).toEqual(["gradle", "run"]);
   });
 
   it("leaves image-only compose services without a dev command and says why", async () => {
@@ -192,10 +201,67 @@ describe("deriveDevCommand", () => {
     });
   });
 
-  it("refuses a start command that needs a shell", () => {
-    expect(derive("sinatra", { startCommand: "bundle exec rake db:migrate && ruby app.rb" })).toEqual(
-      { devCommand: null, problem: "the start command needs a shell to run" },
+  it.each([
+    "bundle exec rake db:migrate && ruby app.rb",
+    "ruby app.rb;echo done",
+    "ruby app.rb|tee log",
+    "java -jar target/*.jar",
+    "ruby app-?.rb",
+    "ruby app.rb -p $PORT",
+    'ruby app.rb -p "${PORT:-4567}"',
+    "ruby `which app`.rb",
+    "ruby app.rb > log",
+    "ruby ~/app.rb",
+    "ruby app.rb 'unterminated",
+  ])("refuses a start command that needs a shell: %s", (startCommand) => {
+    expect(derive("sinatra", { startCommand })).toEqual({
+      devCommand: null,
+      problem: "the start command needs a shell to run",
+    });
+  });
+
+  it("accepts shell characters that are quoted or escaped", () => {
+    expect(
+      derive("sinatra", { startCommand: "ruby app.rb --glob '*.rb' --name \\$HOME a~b" }).devCommand
+        ?.argv,
+    ).toEqual(["ruby", "app.rb", "--glob", "*.rb", "--name", "$HOME", "a~b"]);
+  });
+
+  it("prefixes leading variable assignments with env", () => {
+    expect(derive("sinatra", { startCommand: "RACK_ENV=development ruby app.rb" }).devCommand?.argv).toEqual(
+      ["env", "RACK_ENV=development", "ruby", "app.rb"],
     );
+  });
+
+  it.each([
+    ["springboot", "gradle", ["gradlew"], null, ["./gradlew", "bootRun", "--args=--server.port=8080"]],
+    ["springboot", "maven", ["mvnw"], null, ["./mvnw", "spring-boot:run", "-Dspring-boot.run.arguments=--server.port=8080"]],
+    ["quarkus", "maven", [], null, ["mvn", "quarkus:dev", "-Dquarkus.http.port=8080"]],
+    ["quarkus", "gradle", [], null, ["gradle", "quarkusDev", "-Dquarkus.http.port=8080"]],
+    ["kotlin", "gradle", [], "plugins {\n  id 'application'\n}", ["gradle", "run"]],
+  ] as const)("runs %s through %s", (stackId, packageManager, fileNames, gradleBuildScript, argv) => {
+    expect(
+      derive(stackId, {
+        packageManager,
+        fileNames: [...fileNames],
+        gradleBuildScript,
+        port: 8080,
+      }).devCommand?.argv,
+    ).toEqual([...argv]);
+  });
+
+  it("does not guess a Kotlin dev command without the application plugin", () => {
+    expect(
+      derive("kotlin", {
+        packageManager: "gradle",
+        gradleBuildScript: "plugins { kotlin(\"jvm\") }",
+        startCommand: "java -jar build/libs/*.jar",
+      }),
+    ).toEqual({ devCommand: null, problem: "the start command needs a shell to run" });
+  });
+
+  it("runs Blazor without forwarding a port", () => {
+    expect(derive("blazor").devCommand?.argv).toEqual(["dotnet", "run"]);
   });
 
   it.each([
