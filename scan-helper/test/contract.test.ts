@@ -75,8 +75,30 @@ describe("compose port mappings", () => {
     ["[::1]:8080:80", { host: "8080", container: "80" }],
     ["${HOST_PORT:-8080}:80", { host: "${HOST_PORT:-8080}", container: "80" }],
     ["3000-3002:3000-3002", { host: "3000-3002", container: "3000-3002" }],
+    ["${BIND_ADDR}:8080:80", { host: "8080", container: "80" }],
   ])("splits %s", (spec, expected) => {
     expect(toPortMapping(spec)).toEqual(expected);
+  });
+
+  it.each(["8080:8081:80", "1:2:3:4", "8080:"])("rejects %s", (spec) => {
+    expect(toPortMapping(spec)).toBeUndefined();
+  });
+
+  it("leaves an unreadable port out and warns about it", async () => {
+    const root = mkdtempSync(join(tmpdir(), "visualize-ports-"));
+    try {
+      writeFileSync(
+        join(root, "docker-compose.yml"),
+        'services:\n  web:\n    image: nginx\n    ports: ["8080:8081:80", "9000:90"]\n',
+      );
+      const result = await scanFolder(root);
+      expect(result.composeServices[0]!.ports).toEqual([{ host: "9000", container: "90" }]);
+      expect(result.warnings).toContain(
+        'Service "web": port "8080:8081:80" was not understood and is left out.',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

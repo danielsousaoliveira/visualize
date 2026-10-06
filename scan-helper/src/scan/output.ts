@@ -38,11 +38,28 @@ function splitOutsideBrackets(value: string): string[] {
   return parts;
 }
 
-export function toPortMapping(spec: string): ScanPortMapping {
+const HOST_ADDRESS = /^(?:\d{1,3}(?:\.\d{1,3}){3}|\[[0-9A-Fa-f:.]+\]|\$\{[^}]+\})$/;
+
+function mapping(host: string, container: string): ScanPortMapping | undefined {
+  return container ? { host: host || null, container } : undefined;
+}
+
+export function toPortMapping(spec: string): ScanPortMapping | undefined {
   const parts = splitOutsideBrackets(spec.replace(/\/(?:tcp|udp|sctp)$/i, ""));
-  const container = parts[parts.length - 1]!;
-  const host = parts.length > 1 ? parts[parts.length - 2]! : "";
-  return { host: host || null, container };
+  switch (parts.length) {
+    case 1:
+      return mapping("", parts[0]!);
+    case 2:
+      return mapping(parts[0]!, parts[1]!);
+    case 3:
+      return HOST_ADDRESS.test(parts[0]!) ? mapping(parts[1]!, parts[2]!) : undefined;
+    default:
+      return undefined;
+  }
+}
+
+function portMappings(service: ComposeService): ScanPortMapping[] {
+  return service.ports.flatMap((spec) => toPortMapping(spec) ?? []);
 }
 
 function containerPort(ports: ScanPortMapping[]): number | null {
@@ -133,7 +150,7 @@ async function composeService(
           buildCommand: null,
           startCommand: null,
         }),
-    port: containerPort(service.ports.map(toPortMapping)),
+    port: containerPort(portMappings(service)),
     hasDockerfile: readable && (await fileExists(reader, dockerfile)),
   };
 }
@@ -143,7 +160,7 @@ function toComposeService(service: ComposeService, composeDirectory: string): Sc
     name: service.name,
     image: service.image ?? null,
     buildContext: buildContext(service, composeDirectory),
-    ports: service.ports.map(toPortMapping),
+    ports: portMappings(service),
     dependsOn: service.dependsOn,
     environment: Object.keys(service.environment),
   };
@@ -159,6 +176,11 @@ function collectWarnings(info: ProjectInfo): string[] {
       : []),
     ...(info.missingRequiredEnv ?? []).map(
       ({ variable }) => `Compose variable ${variable} is required but has no value.`,
+    ),
+    ...(info.services ?? []).flatMap((service) =>
+      service.ports
+        .filter((spec) => toPortMapping(spec) === undefined)
+        .map((spec) => `Service "${service.name}": port "${spec}" was not understood and is left out.`),
     ),
     ...(info.unsupportedCompose ?? []).map(
       ({ service, reason }) => `Service "${service}": ${reason}`,
