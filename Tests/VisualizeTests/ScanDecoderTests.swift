@@ -14,7 +14,23 @@ struct ScanDecoderTests {
     ))?.filter { $0.pathExtension == "json" }.sorted { $0.lastPathComponent < $1.lastPathComponent } ?? []
 
     @Test func goldenOutputsExist() {
-        #expect(Self.goldenFiles.count >= 11)
+        #expect(Self.goldenFiles.count >= 14)
+    }
+
+    @Test func decodesDevCommands() throws {
+        let url = Self.goldenDirectory.appending(path: "scan-pnpm-workspace.json")
+        let result = try ScanDecoder.decode(Data(contentsOf: url))
+        #expect(result.services.map(\.devCommand) == [
+            ScanDevCommand(argv: ["pnpm", "run", "dev"], workingDirectory: "apps/web", source: "script:dev"),
+            ScanDevCommand(argv: ["pnpm", "run", "start"], workingDirectory: "apps/api", source: "script:start"),
+        ])
+    }
+
+    @Test func decodesAMissingDevCommandAsNil() throws {
+        let url = Self.goldenDirectory.appending(path: "scan-compose-env.json")
+        let result = try ScanDecoder.decode(Data(contentsOf: url))
+        let db = try #require(result.services.first { $0.name == "db" })
+        #expect(db.devCommand == nil)
     }
 
     @Test(arguments: goldenFiles)
