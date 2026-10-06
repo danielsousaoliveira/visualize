@@ -9,6 +9,7 @@ export interface InfraComposeSource {
   name: string;
   image: string | null;
   environment: Record<string, string>;
+  hostPorts: number[];
 }
 
 export interface InfraSource {
@@ -35,6 +36,7 @@ interface Provider {
   serviceId: string;
   name: string;
   evidence: string;
+  hostPorts: number[];
 }
 
 const KINDS: readonly ScanInfraKind[] = ["postgres", "mysql", "mongodb", "redis", "sqlite"];
@@ -289,6 +291,12 @@ function sharesService(group: Group, signal: Signal): boolean {
   );
 }
 
+function loopbackProvider(providerGroups: Group[], port: number | null): Group | undefined {
+  const publishing = providerGroups.filter((group) => port !== null && group.provider!.hostPorts.includes(port));
+  if (publishing.length === 1) return publishing[0];
+  return providerGroups.length === 1 ? providerGroups[0] : undefined;
+}
+
 function groupSignals(signals: Signal[], providers: Provider[]): Group[] {
   const providerGroups: Group[] = providers.map((provider) => ({ provider, endpoint: NO_ENDPOINT, signals: [] }));
   const endpointGroups = new Map<string, Group>();
@@ -298,7 +306,7 @@ function groupSignals(signals: Signal[], providers: Provider[]): Group[] {
     const key = `${host}:${signal.port ?? ""}`;
     const group =
       providerGroups.find((candidate) => candidate.provider!.name === host) ??
-      (isLoopback(host) ? providerGroups[0] : undefined) ??
+      (isLoopback(host) ? loopbackProvider(providerGroups, signal.port) : undefined) ??
       endpointGroups.get(key) ??
       endpointGroups.set(key, { endpoint: NO_ENDPOINT, signals: [] }).get(key)!;
     if (group.endpoint.host === null) group.endpoint = { host, port: signal.port };
@@ -314,7 +322,9 @@ function groupSignals(signals: Signal[], providers: Provider[]): Group[] {
       continue;
     }
     if (!fallback) {
-      fallback = groups.length === 1 || providerGroups.length > 0 ? groups[0] : undefined;
+      const onlyProvider = providerGroups.length === 1;
+      const onlyGroup = providerGroups.length === 0 && groups.length === 1;
+      fallback = onlyProvider || onlyGroup ? groups[0] : undefined;
       if (!fallback) {
         fallback = { endpoint: NO_ENDPOINT, signals: [] };
         groups.push(fallback);
@@ -367,7 +377,15 @@ export async function detectInfra(reader: ProjectReader, sources: InfraSource[])
   const providers = sources.flatMap(({ serviceId, compose }) => {
     const kind = compose && imageInfraKind(compose.image);
     return kind
-      ? [{ kind, serviceId, name: compose.name, evidence: `image ${compose.image} in compose service ${compose.name}` }]
+      ? [
+          {
+            kind,
+            serviceId,
+            name: compose.name,
+            evidence: `image ${compose.image} in compose service ${compose.name}`,
+            hostPorts: compose.hostPorts,
+          },
+        ]
       : [];
   });
 

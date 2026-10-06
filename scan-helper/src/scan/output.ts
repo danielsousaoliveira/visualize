@@ -257,6 +257,9 @@ async function composeService(
         name: service.name,
         image: service.image ?? null,
         environment: service.environment,
+        hostPorts: portMappings(service).flatMap(({ host }) =>
+          host && /^\d+$/.test(host) ? [Number(host)] : [],
+        ),
       },
     },
   };

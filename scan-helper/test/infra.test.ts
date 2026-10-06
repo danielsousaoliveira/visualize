@@ -393,6 +393,68 @@ describe("other ecosystems", () => {
       { kind: "postgres", usedBy: ["compose:api"], providedBy: "compose:analytics", host: "analytics", port: 5432 },
     ]);
   });
+
+  it("leaves a dependency unlinked when two compose services provide the kind", async () => {
+    const root = folder("two-postgres-dependency", {
+      "docker-compose.yml": compose({
+        api: ["build: ./api"],
+        primary: ["image: postgres:16"],
+        analytics: ["image: postgres:16"],
+      }),
+      "api/package.json": JSON.stringify({ name: "api", scripts: { start: "node a.js" }, dependencies: { pg: "^8.0.0" } }),
+    });
+    expect(await links(root)).toEqual([
+      { kind: "postgres", usedBy: [], providedBy: "compose:primary", host: null, port: null },
+      { kind: "postgres", usedBy: [], providedBy: "compose:analytics", host: null, port: null },
+      { kind: "postgres", usedBy: ["compose:api"], providedBy: null, host: null, port: null },
+    ]);
+  });
+
+  it("leaves a URL with an unresolved host unlinked when two compose services provide the kind", async () => {
+    const root = folder("two-postgres-unresolved", {
+      "docker-compose.yml": compose({
+        api: ["image: node:22", "environment:", "  DATABASE_URL: postgres://u:p@$${DB_HOST}:5432/x"],
+        primary: ["image: postgres:16"],
+        analytics: ["image: postgres:16"],
+      }),
+    });
+    expect((await links(root)).find(({ usedBy }) => usedBy.includes("compose:api"))).toEqual({
+      kind: "postgres",
+      usedBy: ["compose:api"],
+      providedBy: null,
+      host: null,
+      port: null,
+    });
+  });
+
+  it("links a localhost URL to the compose service publishing its port when two provide the kind", async () => {
+    const root = folder("two-postgres-localhost", {
+      "package.json": NODE_APP,
+      ".env": "DATABASE_URL=postgres://u:p@localhost:5433/x\n",
+      "docker-compose.yml": compose({
+        primary: ["image: postgres:16", 'ports: ["5432:5432"]'],
+        analytics: ["image: postgres:16", 'ports: ["5433:5432"]'],
+      }),
+    });
+    expect(await links(root)).toEqual([
+      { kind: "postgres", usedBy: [], providedBy: "compose:primary", host: null, port: null },
+      { kind: "postgres", usedBy: [], providedBy: "compose:analytics", host: "localhost", port: 5433 },
+    ]);
+  });
+
+  it("leaves a localhost URL unlinked when no compose service publishes its port", async () => {
+    const root = folder("two-postgres-localhost-unpublished", {
+      "package.json": NODE_APP,
+      ".env": "DATABASE_URL=postgres://u:p@localhost:5440/x\n",
+      "docker-compose.yml": compose({
+        primary: ["image: postgres:16", 'ports: ["5432:5432"]'],
+        analytics: ["image: postgres:16", 'ports: ["5433:5432"]'],
+      }),
+    });
+    expect((await links(root)).filter(({ providedBy }) => providedBy === null)).toEqual([
+      { kind: "postgres", usedBy: [], providedBy: null, host: "localhost", port: 5440 },
+    ]);
+  });
 });
 
 describe("env values", () => {
