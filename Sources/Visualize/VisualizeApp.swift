@@ -3,7 +3,13 @@ import SwiftUI
 @main
 struct VisualizeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @State private var appState = AppState()
+    @State private var appState: AppState
+
+    init() {
+        let appState = AppState()
+        _appState = State(initialValue: appState)
+        Task { await appState.scanProjectsWithoutResults() }
+    }
 
     var body: some Scene {
         Window("visualize", id: MainWindow.id) {
@@ -11,7 +17,7 @@ struct VisualizeApp: App {
                 .environment(appState)
         }
         .commands {
-            ScanCommands(appState: appState)
+            LibraryCommands(appState: appState)
         }
 
         MenuBarExtra("visualize", systemImage: "circle.hexagongrid") {
