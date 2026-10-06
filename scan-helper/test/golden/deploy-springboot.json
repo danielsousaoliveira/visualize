@@ -19,7 +19,16 @@
       "buildCommand": "mvn clean package -DskipTests",
       "startCommand": "java -jar target/*.jar",
       "port": 8080,
-      "hasDockerfile": false
+      "hasDockerfile": false,
+      "devCommand": {
+        "argv": [
+          "mvn",
+          "spring-boot:run",
+          "-Dspring-boot.run.arguments=--server.port=8080"
+        ],
+        "workingDirectory": ".",
+        "source": "stack-default"
+      }
     }
   ],
   "composeFiles": [],

@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "project": {
-    "name": "fixture-monorepo",
-    "rootPath": "/fixtures/scan/monorepo",
+    "name": "fixture-pnpm-workspace",
+    "rootPath": "/fixtures/scan/pnpm-workspace",
     "gitBranch": null,
     "type": "monorepo"
   },
@@ -12,17 +12,17 @@
       "name": "web",
       "kind": "app",
       "rootDirectory": "apps/web",
-      "stackId": "node",
-      "category": "backend",
+      "stackId": "vite",
+      "category": "frontend",
       "packageManager": "npm",
       "installCommand": "npm i --force",
       "buildCommand": "npm run build",
-      "startCommand": "npm run start",
-      "port": 3000,
+      "startCommand": null,
+      "port": 5173,
       "hasDockerfile": false,
       "devCommand": {
         "argv": [
-          "npm",
+          "pnpm",
           "run",
           "dev"
         ],
@@ -42,10 +42,10 @@
       "buildCommand": null,
       "startCommand": "npm run start",
       "port": 3000,
-      "hasDockerfile": true,
+      "hasDockerfile": false,
       "devCommand": {
         "argv": [
-          "npm",
+          "pnpm",
           "run",
           "start"
         ],

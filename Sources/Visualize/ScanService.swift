@@ -13,4 +13,5 @@ struct ScanService: Codable, Hashable, Identifiable {
     var startCommand: String?
     var port: Int?
     var hasDockerfile: Bool
+    var devCommand: ScanDevCommand?
 }

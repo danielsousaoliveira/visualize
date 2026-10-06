@@ -11,6 +11,12 @@ export interface ScanProject {
   type: ScanProjectType;
 }
 
+export interface ScanDevCommand {
+  argv: string[];
+  workingDirectory: string;
+  source: string;
+}
+
 export interface ScanService {
   id: string;
   name: string;
@@ -24,6 +30,7 @@ export interface ScanService {
   startCommand: string | null;
   port: number | null;
   hasDockerfile: boolean;
+  devCommand: ScanDevCommand | null;
 }
 
 export interface ScanPortMapping {

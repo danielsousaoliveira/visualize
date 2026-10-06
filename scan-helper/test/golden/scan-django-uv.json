@@ -1,31 +1,33 @@
 {
   "schemaVersion": 1,
   "project": {
-    "name": "laravel",
-    "rootPath": "/fixtures/deploy/laravel",
+    "name": "django-uv",
+    "rootPath": "/fixtures/scan/django-uv",
     "gitBranch": null,
     "type": "app"
   },
   "services": [
     {
       "id": ".",
-      "name": "laravel",
+      "name": "django-uv",
       "kind": "app",
       "rootDirectory": ".",
-      "stackId": "laravel",
+      "stackId": "django",
       "category": "fullstack",
-      "packageManager": "composer",
-      "installCommand": "composer install --no-dev --optimize-autoloader",
-      "buildCommand": null,
-      "startCommand": "SERVER_NAME=\":$PORT\" exec frankenphp run --config /etc/frankenphp/Caddyfile --adapter caddyfile",
+      "packageManager": "uv",
+      "installCommand": "uv sync",
+      "buildCommand": "pip install uv && uv sync && python manage.py collectstatic --noinput",
+      "startCommand": "gunicorn config.wsgi:application --bind 0.0.0.0:8000",
       "port": 8000,
       "hasDockerfile": false,
       "devCommand": {
         "argv": [
-          "php",
-          "artisan",
-          "serve",
-          "--port=8000"
+          "uv",
+          "run",
+          "python",
+          "manage.py",
+          "runserver",
+          "8000"
         ],
         "workingDirectory": ".",
         "source": "stack-default"

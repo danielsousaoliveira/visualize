@@ -19,7 +19,16 @@
       "buildCommand": null,
       "startCommand": "npm run start",
       "port": 8080,
-      "hasDockerfile": true
+      "hasDockerfile": true,
+      "devCommand": {
+        "argv": [
+          "npm",
+          "run",
+          "start"
+        ],
+        "workingDirectory": "api",
+        "source": "script:start"
+      }
     },
     {
       "id": "compose:db",
@@ -33,7 +42,8 @@
       "buildCommand": null,
       "startCommand": null,
       "port": 5432,
-      "hasDockerfile": false
+      "hasDockerfile": false,
+      "devCommand": null
     },
     {
       "id": "compose:cache",
@@ -47,7 +57,8 @@
       "buildCommand": null,
       "startCommand": null,
       "port": 6379,
-      "hasDockerfile": false
+      "hasDockerfile": false,
+      "devCommand": null
     }
   ],
   "composeFiles": [
@@ -107,5 +118,8 @@
   "envRequirements": [],
   "infra": [],
   "connections": [],
-  "warnings": []
+  "warnings": [
+    "Service \"db\" has no dev command: it has no local source to run.",
+    "Service \"cache\" has no dev command: it has no local source to run."
+  ]
 }

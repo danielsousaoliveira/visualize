@@ -73,7 +73,8 @@
         "buildCommand",
         "startCommand",
         "port",
-        "hasDockerfile"
+        "hasDockerfile",
+        "devCommand"
       ],
       "properties": {
         "id": {
@@ -94,6 +95,28 @@
         "hasDockerfile": {
           "description": "For a compose service, true only when it builds from a local context that holds its Dockerfile.",
           "type": "boolean"
+        },
+        "devCommand": {
+          "description": "What a developer would type to run the service locally. Null when none could be derived; a warning then says why.",
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/devCommand" }]
+        }
+      }
+    },
+    "devCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["argv", "workingDirectory", "source"],
+      "properties": {
+        "argv": {
+          "description": "Program and arguments, run without a shell. Install steps are never chained in.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "workingDirectory": { "$ref": "#/$defs/relativePath" },
+        "source": {
+          "type": "string",
+          "pattern": "^(script:.+|stack-default|fallback-start)$"
         }
       }
     },

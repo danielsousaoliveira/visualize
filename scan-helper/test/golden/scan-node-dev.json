@@ -1,33 +1,33 @@
 {
   "schemaVersion": 1,
   "project": {
-    "name": "go",
-    "rootPath": "/fixtures/deploy/go",
+    "name": "node-dev",
+    "rootPath": "/fixtures/scan/node-dev",
     "gitBranch": null,
     "type": "app"
   },
   "services": [
     {
       "id": ".",
-      "name": "go",
+      "name": "node-dev",
       "kind": "app",
       "rootDirectory": ".",
-      "stackId": "go",
+      "stackId": "node",
       "category": "backend",
-      "packageManager": "go",
-      "installCommand": "go mod download",
-      "buildCommand": "go build -o app .",
-      "startCommand": "./app",
-      "port": 8080,
+      "packageManager": "pnpm",
+      "installCommand": "pnpm install",
+      "buildCommand": null,
+      "startCommand": "pnpm start",
+      "port": 3000,
       "hasDockerfile": false,
       "devCommand": {
         "argv": [
-          "go",
+          "pnpm",
           "run",
-          "."
+          "dev"
         ],
         "workingDirectory": ".",
-        "source": "stack-default"
+        "source": "script:dev"
       }
     }
   ],
