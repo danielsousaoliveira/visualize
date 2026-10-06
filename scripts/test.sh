@@ -17,5 +17,7 @@ if [[ "$developer_dir" == */CommandLineTools ]]; then
 fi
 
 cd "$repo_root"
-swift test "${testing_flags[@]}" "$@"
-(cd scan-helper && bun test)
+status=0
+swift test "${testing_flags[@]}" "$@" || status=$?
+(cd scan-helper && bun test) || status=$?
+exit "$status"
