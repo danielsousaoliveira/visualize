@@ -11,7 +11,7 @@ struct MainWindow: View {
             sidebar
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240)
         } detail: {
-            ContentUnavailableView("No project selected", systemImage: "square.dashed")
+            ScanStatusView(status: appState.scanStatus)
         }
         .frame(minWidth: 720, minHeight: 440)
     }

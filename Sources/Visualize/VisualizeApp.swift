@@ -10,6 +10,9 @@ struct VisualizeApp: App {
             MainWindow()
                 .environment(appState)
         }
+        .commands {
+            ScanCommands(appState: appState)
+        }
 
         MenuBarExtra("visualize", systemImage: "circle.hexagongrid") {
             MenuBarPopover()
