@@ -6,6 +6,7 @@ struct ScanResult: Codable, Hashable {
     var services: [ScanService]
     var composeFiles: [String]
     var composeServices: [ScanComposeService]
+    var infra: [ScanInfra]
     var warnings: [String]
 
     var summary: String {
