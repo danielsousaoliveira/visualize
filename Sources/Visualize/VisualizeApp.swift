@@ -11,7 +11,7 @@ struct VisualizeApp: App {
                 .environment(appState)
         }
         .commands {
-            ScanCommands(appState: appState)
+            LibraryCommands(appState: appState)
         }
 
         MenuBarExtra("visualize", systemImage: "circle.hexagongrid") {
