@@ -19,7 +19,8 @@
       "buildCommand": null,
       "startCommand": null,
       "port": 80,
-      "hasDockerfile": true
+      "hasDockerfile": true,
+      "devCommand": null
     }
   ],
   "composeFiles": [],
@@ -27,5 +28,7 @@
   "envRequirements": [],
   "infra": [],
   "connections": [],
-  "warnings": []
+  "warnings": [
+    "Service \"docker\" has no dev command: it builds and runs from its Dockerfile."
+  ]
 }

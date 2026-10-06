@@ -19,7 +19,16 @@
       "buildCommand": "npm run build",
       "startCommand": "npm run start",
       "port": 3000,
-      "hasDockerfile": false
+      "hasDockerfile": false,
+      "devCommand": {
+        "argv": [
+          "npm",
+          "run",
+          "dev"
+        ],
+        "workingDirectory": "apps/web",
+        "source": "script:dev"
+      }
     },
     {
       "id": "apps/api",
@@ -33,7 +42,16 @@
       "buildCommand": null,
       "startCommand": "npm run start",
       "port": 3000,
-      "hasDockerfile": true
+      "hasDockerfile": true,
+      "devCommand": {
+        "argv": [
+          "npm",
+          "run",
+          "start"
+        ],
+        "workingDirectory": "apps/api",
+        "source": "script:start"
+      }
     }
   ],
   "composeFiles": [],

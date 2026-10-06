@@ -19,7 +19,16 @@
       "buildCommand": "mvn clean package -DskipTests",
       "startCommand": "java -jar target/*.jar",
       "port": 8080,
-      "hasDockerfile": false
+      "hasDockerfile": false,
+      "devCommand": {
+        "argv": [
+          "java",
+          "-jar",
+          "target/*.jar"
+        ],
+        "workingDirectory": ".",
+        "source": "fallback-start"
+      }
     }
   ],
   "composeFiles": [],

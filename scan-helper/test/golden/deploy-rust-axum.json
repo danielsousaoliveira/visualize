@@ -19,7 +19,15 @@
       "buildCommand": "cargo build --release",
       "startCommand": "./target/release/hello_axum",
       "port": 3000,
-      "hasDockerfile": false
+      "hasDockerfile": false,
+      "devCommand": {
+        "argv": [
+          "cargo",
+          "run"
+        ],
+        "workingDirectory": ".",
+        "source": "stack-default"
+      }
     }
   ],
   "composeFiles": [],

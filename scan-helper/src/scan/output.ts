@@ -9,10 +9,21 @@ import {
   type ScanResult,
   type ScanService,
 } from "./contract";
+
+type ServiceWithoutDevCommand = Omit<ScanService, "devCommand">;
+
+interface ScannedService {
+  service: ScanService;
+  warning?: string;
+}
 import type { ProjectReader } from "./local-reader";
 import { readProjectSnapshot, type ProjectInfo } from "./resolve";
+import { deriveDevCommand } from "./dev-command";
+import type { StackId } from "../core";
 
 const DOCKERFILE = "Dockerfile";
+const JS_PACKAGE_MANAGERS = new Set(["npm", "pnpm", "yarn", "bun"]);
+const JS_LOCKFILES = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb"];
 
 function toRelativeDirectory(path: string): string {
   return posix.normalize(path || ".").replace(/(.)\/+$/, "$1");
@@ -101,14 +112,71 @@ function serviceRecipe(source: {
   };
 }
 
+async function packageScripts(
+  reader: ProjectReader,
+  rootDirectory: string,
+): Promise<Record<string, unknown>> {
+  const packageJson = await reader.readJson(posix.join(rootDirectory, "package.json"));
+  const scripts = packageJson?.scripts;
+  return scripts && typeof scripts === "object" ? (scripts as Record<string, unknown>) : {};
+}
+
+async function hasOwnLockfile(reader: ProjectReader, rootDirectory: string): Promise<boolean> {
+  const entries = await reader.listDirectory(rootDirectory === "." ? "" : rootDirectory);
+  return entries.some((entry) => JS_LOCKFILES.includes(entry.name.toLowerCase()));
+}
+
+async function devPackageManager(
+  reader: ProjectReader,
+  service: ServiceWithoutDevCommand,
+  workspacePackageManager: string | undefined,
+): Promise<string | null> {
+  const own = service.packageManager;
+  const inherits =
+    own !== null &&
+    JS_PACKAGE_MANAGERS.has(own) &&
+    workspacePackageManager !== undefined &&
+    JS_PACKAGE_MANAGERS.has(workspacePackageManager) &&
+    !(await hasOwnLockfile(reader, service.rootDirectory));
+  return inherits ? workspacePackageManager : own;
+}
+
+async function withDevCommand(
+  reader: ProjectReader,
+  service: ServiceWithoutDevCommand,
+  workspacePackageManager?: string,
+): Promise<ScannedService> {
+  if (!service.stackId) {
+    return {
+      service: { ...service, devCommand: null },
+      warning: `Service "${service.name}" has no dev command: it has no local source to run.`,
+    };
+  }
+  const result = deriveDevCommand({
+    stackId: service.stackId as StackId,
+    packageManager: await devPackageManager(reader, service, workspacePackageManager),
+    scripts: await packageScripts(reader, service.rootDirectory),
+    startCommand: service.startCommand,
+    port: service.port,
+    workingDirectory: service.rootDirectory,
+  });
+  return {
+    service: { ...service, devCommand: result.devCommand },
+    ...(result.problem && {
+      warning: `Service "${service.name}" has no dev command: ${result.problem}.`,
+    }),
+  };
+}
+
 async function appService(
   reader: ProjectReader,
   id: string,
   name: string,
   source: MonorepoApp | ProjectInfo,
-): Promise<ScanService> {
+  workspacePackageManager?: string,
+): Promise<ScannedService> {
   const rootDirectory = toRelativeDirectory(source.rootDirectory);
-  return {
+  const service: ServiceWithoutDevCommand = {
     id,
     name,
     kind: "app",
@@ -117,6 +185,7 @@ async function appService(
     port: source.port,
     hasDockerfile: await fileExists(reader, posix.join(rootDirectory, DOCKERFILE)),
   };
+  return withDevCommand(reader, service, workspacePackageManager);
 }
 
 function buildContext(service: ComposeService, composeDirectory: string): string | null {
@@ -130,12 +199,12 @@ async function composeService(
   reader: ProjectReader,
   service: ComposeService,
   composeDirectory: string,
-): Promise<ScanService> {
+): Promise<ScannedService> {
   const context = buildContext(service, composeDirectory);
   const readable = context !== null && isLocalPath(context) && isInsideRoot(context);
   const stack = readable ? await detectStackIn(reader, context) : undefined;
   const dockerfile = posix.join(context ?? ".", service.dockerfile ?? DOCKERFILE);
-  return {
+  return withDevCommand(reader, {
     id: `compose:${service.name}`,
     name: service.name,
     kind: "compose",
@@ -152,7 +221,7 @@ async function composeService(
         }),
     port: containerPort(portMappings(service)),
     hasDockerfile: readable && (await fileExists(reader, dockerfile)),
-  };
+  });
 }
 
 function toComposeService(service: ComposeService, composeDirectory: string): ScanComposeService {
@@ -192,7 +261,7 @@ async function collectServices(
   info: ProjectInfo,
   reader: ProjectReader,
   composeDirectory: string,
-): Promise<ScanService[]> {
+): Promise<ScannedService[]> {
   if (info.services) {
     return Promise.all(
       info.services.map((service) => composeService(reader, service, composeDirectory)),
@@ -201,7 +270,13 @@ async function collectServices(
   if (info.monorepoApps) {
     return Promise.all(
       info.monorepoApps.map((app) =>
-        appService(reader, toRelativeDirectory(app.rootDirectory), app.name, app),
+        appService(
+          reader,
+          toRelativeDirectory(app.rootDirectory),
+          app.name,
+          app,
+          info.monorepoWorkspace?.packageManager,
+        ),
       ),
     );
   }
@@ -212,6 +287,7 @@ async function collectServices(
 
 export async function toScanResult(info: ProjectInfo, reader: ProjectReader): Promise<ScanResult> {
   const composeDirectory = toRelativeDirectory(posix.dirname(info.composeFileRead ?? "."));
+  const scanned = await collectServices(info, reader, composeDirectory);
   return {
     schemaVersion: SCHEMA_VERSION,
     project: {
@@ -220,7 +296,7 @@ export async function toScanResult(info: ProjectInfo, reader: ProjectReader): Pr
       gitBranch: info.repository.selected_branch ?? null,
       type: info.projectType,
     },
-    services: await collectServices(info, reader, composeDirectory),
+    services: scanned.map(({ service }) => service),
     composeFiles: info.composeFiles ?? [],
     composeServices: (info.services ?? []).map((service) =>
       toComposeService(service, composeDirectory),
@@ -228,6 +304,6 @@ export async function toScanResult(info: ProjectInfo, reader: ProjectReader): Pr
     envRequirements: [],
     infra: [],
     connections: [],
-    warnings: collectWarnings(info),
+    warnings: [...collectWarnings(info), ...scanned.flatMap(({ warning }) => warning ?? [])],
   };
 }

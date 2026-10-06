@@ -19,7 +19,17 @@
       "buildCommand": null,
       "startCommand": "SERVER_NAME=\":$PORT\" exec frankenphp run --config /etc/frankenphp/Caddyfile --adapter caddyfile",
       "port": 8000,
-      "hasDockerfile": false
+      "hasDockerfile": false,
+      "devCommand": {
+        "argv": [
+          "php",
+          "artisan",
+          "serve",
+          "--port=8000"
+        ],
+        "workingDirectory": ".",
+        "source": "stack-default"
+      }
     }
   ],
   "composeFiles": [],

@@ -19,7 +19,16 @@
       "buildCommand": "go build -o app .",
       "startCommand": "./app",
       "port": 8080,
-      "hasDockerfile": false
+      "hasDockerfile": false,
+      "devCommand": {
+        "argv": [
+          "go",
+          "run",
+          "."
+        ],
+        "workingDirectory": ".",
+        "source": "stack-default"
+      }
     }
   ],
   "composeFiles": [],

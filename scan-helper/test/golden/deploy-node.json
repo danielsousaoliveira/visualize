@@ -19,7 +19,16 @@
       "buildCommand": null,
       "startCommand": "npm run start",
       "port": 3000,
-      "hasDockerfile": false
+      "hasDockerfile": false,
+      "devCommand": {
+        "argv": [
+          "npm",
+          "run",
+          "start"
+        ],
+        "workingDirectory": ".",
+        "source": "script:start"
+      }
     }
   ],
   "composeFiles": [],

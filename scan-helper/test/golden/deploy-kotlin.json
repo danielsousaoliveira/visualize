@@ -19,7 +19,16 @@
       "buildCommand": "gradle build -x test",
       "startCommand": "java -jar build/libs/*.jar",
       "port": 8080,
-      "hasDockerfile": false
+      "hasDockerfile": false,
+      "devCommand": {
+        "argv": [
+          "java",
+          "-jar",
+          "build/libs/*.jar"
+        ],
+        "workingDirectory": ".",
+        "source": "fallback-start"
+      }
     }
   ],
   "composeFiles": [],
