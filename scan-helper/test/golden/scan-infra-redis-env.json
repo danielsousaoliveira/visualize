@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "infra-redis-env",
+    "rootPath": "/fixtures/scan/infra-redis-env",
+    "gitBranch": null,
+    "type": "app"
+  },
+  "services": [
+    {
+      "id": ".",
+      "name": "infra-redis-env",
+      "kind": "app",
+      "rootDirectory": ".",
+      "stackId": "express",
+      "category": "backend",
+      "packageManager": "npm",
+      "installCommand": "npm i --force",
+      "buildCommand": null,
+      "startCommand": "npm run start",
+      "port": 3000,
+      "hasDockerfile": false,
+      "devCommand": {
+        "argv": [
+          "npm",
+          "run",
+          "start"
+        ],
+        "workingDirectory": ".",
+        "source": "script:start"
+      }
+    }
+  ],
+  "composeFiles": [],
+  "composeServices": [],
+  "envRequirements": [],
+  "infra": [
+    {
+      "kind": "redis",
+      "usedBy": [
+        "."
+      ],
+      "providedBy": null,
+      "evidence": [
+        "env REDIS_URL in .env"
+      ],
+      "host": "localhost",
+      "port": 6380
+    }
+  ],
+  "connections": [],
+  "warnings": []
+}

@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "infra-prisma-mysql",
+    "rootPath": "/fixtures/scan/infra-prisma-mysql",
+    "gitBranch": null,
+    "type": "app"
+  },
+  "services": [
+    {
+      "id": ".",
+      "name": "infra-prisma-mysql",
+      "kind": "app",
+      "rootDirectory": ".",
+      "stackId": "express",
+      "category": "backend",
+      "packageManager": "npm",
+      "installCommand": "npm i --force",
+      "buildCommand": null,
+      "startCommand": "npm run start",
+      "port": 3000,
+      "hasDockerfile": false,
+      "devCommand": {
+        "argv": [
+          "npm",
+          "run",
+          "start"
+        ],
+        "workingDirectory": ".",
+        "source": "script:start"
+      }
+    }
+  ],
+  "composeFiles": [],
+  "composeServices": [],
+  "envRequirements": [],
+  "infra": [
+    {
+      "kind": "mysql",
+      "usedBy": [
+        "."
+      ],
+      "providedBy": null,
+      "evidence": [
+        "prisma provider mysql in prisma/schema.prisma"
+      ],
+      "host": null,
+      "port": null
+    }
+  ],
+  "connections": [],
+  "warnings": []
+}
