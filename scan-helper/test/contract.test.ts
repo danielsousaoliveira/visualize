@@ -1,6 +1,14 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import Ajv2020 from "ajv/dist/2020";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -120,10 +128,42 @@ describe("git branch", () => {
     expect(await readGitBranch(root)).toBe("feature/scan");
   });
 
-  it("follows a worktree gitdir pointer", async () => {
-    repo("main-repo", { ".git/worktrees/wt/HEAD": "ref: refs/heads/wt-branch\n" });
-    const root = repo("wt", { ".git": "gitdir: ../main-repo/.git/worktrees/wt\n" });
+  it("follows a worktree gitdir pointer that links back to it", async () => {
+    const root = join(workspace, "wt");
+    repo("main-repo", {
+      ".git/worktrees/wt/HEAD": "ref: refs/heads/wt-branch\n",
+      ".git/worktrees/wt/gitdir": `${join(root, ".git")}\n`,
+    });
+    repo("wt", { ".git": "gitdir: ../main-repo/.git/worktrees/wt\n" });
     expect(await readGitBranch(root)).toBe("wt-branch");
+  });
+
+  it("ignores a gitdir pointer without a matching worktree back-link", async () => {
+    repo("elsewhere", { "worktrees/x/HEAD": "ref: refs/heads/leaked\n" });
+    const noBackLink = repo("no-back-link", { ".git": "gitdir: ../elsewhere/worktrees/x\n" });
+    expect(await readGitBranch(noBackLink)).toBeUndefined();
+
+    repo("other", { "HEAD": "ref: refs/heads/leaked\n" });
+    const notAWorktree = repo("not-a-worktree", { ".git": "gitdir: ../other\n" });
+    expect(await readGitBranch(notAWorktree)).toBeUndefined();
+  });
+
+  it("ignores a symlinked .git or HEAD", async () => {
+    const outside = repo("outside-git", { "HEAD": "ref: refs/heads/leaked\n" });
+    const linkedDotGit = repo("linked-dot-git", { "README.md": "" });
+    symlinkSync(outside, join(linkedDotGit, ".git"));
+    expect(await readGitBranch(linkedDotGit)).toBeUndefined();
+
+    const linkedHead = repo("linked-head", { ".git/config": "" });
+    symlinkSync(join(outside, "HEAD"), join(linkedHead, ".git/HEAD"));
+    expect(await readGitBranch(linkedHead)).toBeUndefined();
+  });
+
+  it("ignores branch names outside the ref charset", async () => {
+    const odd = repo("odd-branch", { ".git/HEAD": "ref: refs/heads/a b\n" });
+    expect(await readGitBranch(odd)).toBeUndefined();
+    const dotted = repo("dotted-branch", { ".git/HEAD": "ref: refs/heads/../x\n" });
+    expect(await readGitBranch(dotted)).toBeUndefined();
   });
 
   it("has no branch when HEAD is detached or there is no repository", async () => {
