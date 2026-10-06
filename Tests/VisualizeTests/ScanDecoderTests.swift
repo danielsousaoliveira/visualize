@@ -85,6 +85,15 @@ struct ScanDecoderTests {
         #expect(redis.port == 6380)
     }
 
+    @Test func decodesEnvRequirements() throws {
+        let url = Self.goldenDirectory.appending(path: "scan-env-requirements.json")
+        let result = try ScanDecoder.decode(Data(contentsOf: url))
+        let requirement = try #require(result.envRequirements.first)
+        #expect(requirement.serviceId == ".")
+        #expect(requirement.variables.map(\.status) == [.set, .missing, .missing, .extra, .set])
+        #expect(requirement.variables.first == ScanEnvVariable(name: "A", status: .set, declaredIn: [".env.example", ".env"]))
+    }
+
     @Test func rejectsANewerSchemaVersion() throws {
         let url = Self.goldenDirectory.appending(path: "deploy-node.json")
         var object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
