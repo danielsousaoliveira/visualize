@@ -135,6 +135,7 @@ const SQLITE_ENV_KEY = /DATABASE|(?:^|_)DB(?:_|$)|SQLITE/i;
 const SQLITE_ENV_VALUE = /^file:|\.(?:db|sqlite3?)$/i;
 const HOST_PORT = /^(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?)(?::(\d{1,5}))?$/;
 const NO_ENDPOINT: Endpoint = { host: null, port: null };
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 const IMAGE_KINDS: ReadonlyArray<readonly [ScanInfraKind, RegExp]> = [
   ["postgres", /^(?:postgres|postgis\/postgis)(?::|$)/i],
@@ -273,7 +274,9 @@ function unique<T>(values: T[]): T[] {
 }
 
 function chooseProvider(providers: Provider[], host: string | null): Provider | undefined {
-  return providers.find((provider) => provider.name === host) ?? providers[0];
+  const named = providers.find((provider) => provider.name === host);
+  if (named) return named;
+  return host === null || LOOPBACK_HOSTS.has(host.toLowerCase()) ? providers[0] : undefined;
 }
 
 function toInfra(kind: ScanInfraKind, signals: Signal[], providers: Provider[]): ScanInfra | undefined {

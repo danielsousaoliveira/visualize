@@ -253,6 +253,42 @@ describe("other ecosystems", () => {
     ]);
   });
 
+  it("does not link an external database URL to a compose service", async () => {
+    const root = folder("external-postgres", {
+      "docker-compose.yml": [
+        "services:",
+        "  api:",
+        "    image: node:22",
+        "    environment:",
+        "      DATABASE_URL: postgres://u:p@prod.db.example.com:5432/x",
+        "  primary:",
+        "    image: postgres:16",
+        "  analytics:",
+        "    image: postgres:16",
+      ].join("\n"),
+    });
+    expect(await infraOf(root)).toEqual([
+      {
+        kind: "postgres",
+        usedBy: ["compose:api"],
+        providedBy: null,
+        evidence: ["env DATABASE_URL in compose service api"],
+        host: "prod.db.example.com",
+        port: 5432,
+      },
+    ]);
+  });
+
+  it("links a localhost URL to the compose service that publishes the kind", async () => {
+    const root = folder("local-postgres", {
+      "package.json": NODE_APP,
+      ".env": "DATABASE_URL=postgres://u:p@localhost:5432/x\n",
+      "docker-compose.yml": "services:\n  db:\n    image: postgres:16\n    ports: [\"5432:5432\"]\n",
+    });
+    const [postgres] = await infraOf(root);
+    expect(postgres).toMatchObject({ providedBy: "compose:db", host: "localhost", port: 5432 });
+  });
+
   it("prefers the compose service the env URL names when two provide a kind", async () => {
     const root = folder("two-postgres", {
       "docker-compose.yml": [
