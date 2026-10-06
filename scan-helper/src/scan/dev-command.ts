@@ -9,6 +9,8 @@ export interface DevCommandInput {
   startCommand: string | null;
   port: number | null;
   workingDirectory: string;
+  fileNames: string[];
+  gradleBuildScript: string | null;
 }
 
 export type DevCommandResult =
@@ -19,7 +21,10 @@ const JS_LANGUAGES = new Set(["javascript", "typescript"]);
 const JS_PACKAGE_MANAGERS = new Set(["npm", "pnpm", "yarn", "bun"]);
 const JS_DEV_SCRIPTS = ["dev", "serve", "start"];
 const PYTHON_RUNNERS = new Set(["uv", "poetry", "pipenv"]);
-const SHELL_OPERATORS = new Set(["&&", "||", ";", "|", "&", ">", ">>", "<"]);
+const UNQUOTED_SHELL_SYNTAX = new Set("$`;&|<>()*?[{}");
+const WORD_START_SHELL_SYNTAX = new Set("~#");
+const DOUBLE_QUOTED_SHELL_SYNTAX = new Set("$`");
+const GRADLE_APPLICATION_PLUGIN = /^\s*application\b|["']application["']/m;
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const ASGI_TARGET = /^[A-Za-z_][\w.]*:[A-Za-z_]\w*$/;
 
@@ -39,6 +44,76 @@ function pythonArgv(packageManager: string | null, argv: string[]): string[] {
   return packageManager && PYTHON_RUNNERS.has(packageManager)
     ? [packageManager, "run", ...argv]
     : argv;
+}
+
+function needsShell(command: string): boolean {
+  let quote: string | null = null;
+  let escaped = false;
+  let wordStart = true;
+  for (const char of command) {
+    if (escaped) {
+      escaped = false;
+      wordStart = false;
+      continue;
+    }
+    if (quote === "'") {
+      if (char === "'") quote = null;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (quote === '"') {
+      if (char === '"') quote = null;
+      else if (DOUBLE_QUOTED_SHELL_SYNTAX.has(char)) return true;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      wordStart = false;
+      continue;
+    }
+    if (char === "\n") return true;
+    if (/\s/.test(char)) {
+      wordStart = true;
+      continue;
+    }
+    if (UNQUOTED_SHELL_SYNTAX.has(char)) return true;
+    if (wordStart && WORD_START_SHELL_SYNTAX.has(char)) return true;
+    wordStart = false;
+  }
+  return quote !== null || escaped;
+}
+
+function jvmTool(input: DevCommandInput): string | undefined {
+  const names = new Set(input.fileNames.map((name) => name.toLowerCase()));
+  switch (input.packageManager) {
+    case "maven":
+      return names.has("mvnw") ? "./mvnw" : "mvn";
+    case "gradle":
+      return names.has("gradlew") ? "./gradlew" : "gradle";
+  }
+  return undefined;
+}
+
+function jvmArgv(input: DevCommandInput, port: string): string[] | undefined {
+  const tool = jvmTool(input);
+  if (!tool) return undefined;
+  const maven = input.packageManager === "maven";
+  switch (input.stackId) {
+    case "springboot":
+      return maven
+        ? [tool, "spring-boot:run", `-Dspring-boot.run.arguments=--server.port=${port}`]
+        : [tool, "bootRun", `--args=--server.port=${port}`];
+    case "quarkus":
+      return [tool, maven ? "quarkus:dev" : "quarkusDev", `-Dquarkus.http.port=${port}`];
+    case "kotlin":
+      return !maven && GRADLE_APPLICATION_PLUGIN.test(input.gradleBuildScript ?? "")
+        ? [tool, "run"]
+        : undefined;
+  }
+  return undefined;
 }
 
 function asgiTarget(startCommand: string | null): string | undefined {
@@ -68,6 +143,9 @@ function stackDefaultArgv(input: DevCommandInput, port: string): string[] | unde
   }
   if (language === "go") return ["go", "run", "."];
   if (language === "rust") return ["cargo", "run"];
+  if (language === "java") return jvmArgv(input, port);
+  if (stackId === "blazor") return ["dotnet", "run"];
+  if (language === "csharp") return ["dotnet", "run", "--", "--urls", `http://localhost:${port}`];
   return undefined;
 }
 
@@ -83,11 +161,12 @@ function missingCommandReason(stackId: StackId): string {
 }
 
 function fallbackStart(input: DevCommandInput): DevCommandResult {
-  const words = shellSplitWords(input.startCommand ?? "");
+  const startCommand = input.startCommand ?? "";
+  const words = shellSplitWords(startCommand);
   if (words.length === 0) {
     return { devCommand: null, problem: missingCommandReason(input.stackId) };
   }
-  if (words.some((word) => SHELL_OPERATORS.has(word))) {
+  if (needsShell(startCommand)) {
     return { devCommand: null, problem: "the start command needs a shell to run" };
   }
   const argv = ENV_ASSIGNMENT.test(words[0]!) ? ["env", ...words] : words;

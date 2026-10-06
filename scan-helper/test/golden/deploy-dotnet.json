@@ -22,13 +22,14 @@
       "hasDockerfile": false,
       "devCommand": {
         "argv": [
-          "env",
-          "ASPNETCORE_URLS=http://0.0.0.0:$PORT",
           "dotnet",
-          "publish/HelloApi.dll"
+          "run",
+          "--",
+          "--urls",
+          "http://localhost:5000"
         ],
         "workingDirectory": ".",
-        "source": "fallback-start"
+        "source": "stack-default"
       }
     }
   ],

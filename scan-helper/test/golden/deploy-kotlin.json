@@ -22,12 +22,11 @@
       "hasDockerfile": false,
       "devCommand": {
         "argv": [
-          "java",
-          "-jar",
-          "build/libs/*.jar"
+          "gradle",
+          "run"
         ],
         "workingDirectory": ".",
-        "source": "fallback-start"
+        "source": "stack-default"
       }
     }
   ],

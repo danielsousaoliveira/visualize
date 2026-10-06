@@ -22,12 +22,12 @@
       "hasDockerfile": false,
       "devCommand": {
         "argv": [
-          "java",
-          "-jar",
-          "target/*.jar"
+          "mvn",
+          "spring-boot:run",
+          "-Dspring-boot.run.arguments=--server.port=8080"
         ],
         "workingDirectory": ".",
-        "source": "fallback-start"
+        "source": "stack-default"
       }
     }
   ],

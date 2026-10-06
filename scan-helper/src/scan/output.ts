@@ -23,6 +23,7 @@ import type { StackId } from "../core";
 
 const DOCKERFILE = "Dockerfile";
 const JS_PACKAGE_MANAGERS = new Set(["npm", "pnpm", "yarn", "bun"]);
+const GRADLE_BUILD_FILES = ["build.gradle.kts", "build.gradle"];
 const JS_LOCKFILES = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb"];
 
 function toRelativeDirectory(path: string): string {
@@ -121,24 +122,28 @@ async function packageScripts(
   return scripts && typeof scripts === "object" ? (scripts as Record<string, unknown>) : {};
 }
 
-async function hasOwnLockfile(reader: ProjectReader, rootDirectory: string): Promise<boolean> {
-  const entries = await reader.listDirectory(rootDirectory === "." ? "" : rootDirectory);
-  return entries.some((entry) => JS_LOCKFILES.includes(entry.name.toLowerCase()));
-}
-
-async function devPackageManager(
-  reader: ProjectReader,
+function devPackageManager(
   service: ServiceWithoutDevCommand,
+  fileNames: string[],
   workspacePackageManager: string | undefined,
-): Promise<string | null> {
+): string | null {
   const own = service.packageManager;
   const inherits =
     own !== null &&
     JS_PACKAGE_MANAGERS.has(own) &&
     workspacePackageManager !== undefined &&
     JS_PACKAGE_MANAGERS.has(workspacePackageManager) &&
-    !(await hasOwnLockfile(reader, service.rootDirectory));
+    !fileNames.some((name) => JS_LOCKFILES.includes(name.toLowerCase()));
   return inherits ? workspacePackageManager : own;
+}
+
+async function gradleBuildScript(
+  reader: ProjectReader,
+  rootDirectory: string,
+  fileNames: string[],
+): Promise<string | null> {
+  const name = GRADLE_BUILD_FILES.find((candidate) => fileNames.includes(candidate));
+  return name ? ((await reader.readText(posix.join(rootDirectory, name))) ?? null) : null;
 }
 
 async function withDevCommand(
@@ -152,13 +157,19 @@ async function withDevCommand(
       warning: `Service "${service.name}" has no dev command: it has no local source to run.`,
     };
   }
+  const entries = await reader.listDirectory(
+    service.rootDirectory === "." ? "" : service.rootDirectory,
+  );
+  const fileNames = entries.map((entry) => entry.name);
   const result = deriveDevCommand({
     stackId: service.stackId as StackId,
-    packageManager: await devPackageManager(reader, service, workspacePackageManager),
+    packageManager: devPackageManager(service, fileNames, workspacePackageManager),
     scripts: await packageScripts(reader, service.rootDirectory),
     startCommand: service.startCommand,
     port: service.port,
     workingDirectory: service.rootDirectory,
+    fileNames,
+    gradleBuildScript: await gradleBuildScript(reader, service.rootDirectory, fileNames),
   });
   return {
     service: { ...service, devCommand: result.devCommand },
