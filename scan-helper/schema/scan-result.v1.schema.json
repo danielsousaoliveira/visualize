@@ -137,7 +137,7 @@
       }
     },
     "infra": {
-      "description": "A database or cache the project needs. One entry per kind. Env values are read only for scheme, host and port.",
+      "description": "A database or cache the project needs. One entry per compose service that provides the kind and per distinct external host and port, and one for the kind when neither applies. Env values are read only for scheme, host and port.",
       "type": "object",
       "additionalProperties": false,
       "required": ["kind", "usedBy", "providedBy", "evidence", "host", "port"],

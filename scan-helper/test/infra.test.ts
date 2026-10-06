@@ -253,21 +253,52 @@ describe("other ecosystems", () => {
     ]);
   });
 
-  it("does not link an external database URL to a compose service", async () => {
+  function compose(services: Record<string, string[]>): string {
+    return [
+      "services:",
+      ...Object.entries(services).flatMap(([name, lines]) => [`  ${name}:`, ...lines.map((line) => `    ${line}`)]),
+    ].join("\n");
+  }
+
+  function postgresUser(host: string): string[] {
+    return ["image: node:22", "environment:", `  DATABASE_URL: postgres://u:p@${host}:5432/x`];
+  }
+
+  async function links(root: string) {
+    return (await infraOf(root)).map(({ kind, usedBy, providedBy, host, port }) => ({
+      kind,
+      usedBy,
+      providedBy,
+      host,
+      port,
+    }));
+  }
+
+  it("keeps an external database URL apart from the compose services of that kind", async () => {
     const root = folder("external-postgres", {
-      "docker-compose.yml": [
-        "services:",
-        "  api:",
-        "    image: node:22",
-        "    environment:",
-        "      DATABASE_URL: postgres://u:p@prod.db.example.com:5432/x",
-        "  primary:",
-        "    image: postgres:16",
-        "  analytics:",
-        "    image: postgres:16",
-      ].join("\n"),
+      "docker-compose.yml": compose({
+        api: postgresUser("prod.db.example.com"),
+        primary: ["image: postgres:16"],
+        analytics: ["image: postgres:16"],
+      }),
     });
     expect(await infraOf(root)).toEqual([
+      {
+        kind: "postgres",
+        usedBy: [],
+        providedBy: "compose:primary",
+        evidence: ["image postgres:16 in compose service primary"],
+        host: null,
+        port: null,
+      },
+      {
+        kind: "postgres",
+        usedBy: [],
+        providedBy: "compose:analytics",
+        evidence: ["image postgres:16 in compose service analytics"],
+        host: null,
+        port: null,
+      },
       {
         kind: "postgres",
         usedBy: ["compose:api"],
@@ -279,32 +310,88 @@ describe("other ecosystems", () => {
     ]);
   });
 
+  it.each([
+    ["external first", ["prod.example.com", "db"]],
+    ["compose first", ["db", "prod.example.com"]],
+  ])("gives local and external endpoints their own entries, %s", async (_order, [apiHost, workerHost]) => {
+    const root = folder(`mixed-${apiHost}`, {
+      "docker-compose.yml": compose({
+        api: postgresUser(apiHost!),
+        worker: postgresUser(workerHost!),
+        db: ["image: postgres:16"],
+      }),
+    });
+    const local = apiHost === "db" ? "compose:api" : "compose:worker";
+    const external = apiHost === "db" ? "compose:worker" : "compose:api";
+    expect(await links(root)).toEqual([
+      { kind: "postgres", usedBy: [local], providedBy: "compose:db", host: "db", port: 5432 },
+      { kind: "postgres", usedBy: [external], providedBy: null, host: "prod.example.com", port: 5432 },
+    ]);
+  });
+
+  it("gives each distinct external endpoint its own entry", async () => {
+    const root = folder("two-external", {
+      "docker-compose.yml": compose({
+        api: postgresUser("a.example.com"),
+        worker: postgresUser("b.example.com"),
+        jobs: postgresUser("a.example.com"),
+      }),
+    });
+    expect(await links(root)).toEqual([
+      { kind: "postgres", usedBy: ["compose:api", "compose:jobs"], providedBy: null, host: "a.example.com", port: 5432 },
+      { kind: "postgres", usedBy: ["compose:worker"], providedBy: null, host: "b.example.com", port: 5432 },
+    ]);
+  });
+
+  it("puts a dependency with its own service's endpoint, and the rest with the compose provider", async () => {
+    const root = folder("dependency-grouping", {
+      "docker-compose.yml": compose({
+        api: ["build: ./api", "environment:", "  DATABASE_URL: postgres://u:p@prod.example.com:5432/x"],
+        worker: ["build: ./worker"],
+        db: ["image: postgres:16"],
+      }),
+      "api/package.json": JSON.stringify({ name: "api", scripts: { start: "node a.js" }, dependencies: { pg: "^8.0.0" } }),
+      "worker/package.json": JSON.stringify({ name: "worker", scripts: { start: "node w.js" }, dependencies: { pg: "^8.0.0" } }),
+    });
+    expect(
+      (await infraOf(root)).map(({ usedBy, providedBy, evidence }) => ({ usedBy, providedBy, evidence })),
+    ).toEqual([
+      {
+        usedBy: ["compose:worker"],
+        providedBy: "compose:db",
+        evidence: ["image postgres:16 in compose service db", "dependency pg in worker/package.json"],
+      },
+      {
+        usedBy: ["compose:api"],
+        providedBy: null,
+        evidence: ["dependency pg in api/package.json", "env DATABASE_URL in compose service api"],
+      },
+    ]);
+  });
+
   it("links a localhost URL to the compose service that publishes the kind", async () => {
     const root = folder("local-postgres", {
       "package.json": NODE_APP,
       ".env": "DATABASE_URL=postgres://u:p@localhost:5432/x\n",
-      "docker-compose.yml": "services:\n  db:\n    image: postgres:16\n    ports: [\"5432:5432\"]\n",
+      "docker-compose.yml": compose({ db: ["image: postgres:16", 'ports: ["5432:5432"]'] }),
     });
-    const [postgres] = await infraOf(root);
-    expect(postgres).toMatchObject({ providedBy: "compose:db", host: "localhost", port: 5432 });
+    expect(await links(root)).toEqual([
+      { kind: "postgres", usedBy: [], providedBy: "compose:db", host: "localhost", port: 5432 },
+    ]);
   });
 
-  it("prefers the compose service the env URL names when two provide a kind", async () => {
+  it("links a URL to the compose service its host names when two provide a kind", async () => {
     const root = folder("two-postgres", {
-      "docker-compose.yml": [
-        "services:",
-        "  api:",
-        "    image: node:22",
-        "    environment:",
-        "      DATABASE_URL: postgres://u:p@analytics:5432/x",
-        "  primary:",
-        "    image: postgres:16",
-        "  analytics:",
-        "    image: docker.io/library/postgres:16",
-      ].join("\n"),
+      "docker-compose.yml": compose({
+        api: postgresUser("analytics"),
+        primary: ["image: postgres:16"],
+        analytics: ["image: docker.io/library/postgres:16"],
+      }),
     });
-    const [postgres] = await infraOf(root);
-    expect(postgres).toMatchObject({ providedBy: "compose:analytics", usedBy: ["compose:api"] });
+    expect(await links(root)).toEqual([
+      { kind: "postgres", usedBy: [], providedBy: "compose:primary", host: null, port: null },
+      { kind: "postgres", usedBy: ["compose:api"], providedBy: "compose:analytics", host: "analytics", port: 5432 },
+    ]);
   });
 });
 

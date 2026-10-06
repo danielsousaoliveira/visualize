@@ -273,16 +273,63 @@ function unique<T>(values: T[]): T[] {
   return [...new Set(values)];
 }
 
-function chooseProvider(providers: Provider[], host: string | null): Provider | undefined {
-  const named = providers.find((provider) => provider.name === host);
-  if (named) return named;
-  return host === null || LOOPBACK_HOSTS.has(host.toLowerCase()) ? providers[0] : undefined;
+interface Group {
+  provider?: Provider;
+  endpoint: Endpoint;
+  signals: Signal[];
 }
 
-function toInfra(kind: ScanInfraKind, signals: Signal[], providers: Provider[]): ScanInfra | undefined {
-  if (signals.length === 0 && providers.length === 0) return undefined;
-  const endpoint = signals.find((signal) => signal.host !== null) ?? NO_ENDPOINT;
-  const provider = chooseProvider(providers, endpoint.host);
+function isLoopback(host: string): boolean {
+  return LOOPBACK_HOSTS.has(host.toLowerCase());
+}
+
+function sharesService(group: Group, signal: Signal): boolean {
+  return group.signals.some(
+    (member) => member.host !== null && member.serviceIds.some((id) => signal.serviceIds.includes(id)),
+  );
+}
+
+function groupSignals(signals: Signal[], providers: Provider[]): Group[] {
+  const providerGroups: Group[] = providers.map((provider) => ({ provider, endpoint: NO_ENDPOINT, signals: [] }));
+  const endpointGroups = new Map<string, Group>();
+
+  for (const signal of signals.filter((candidate) => candidate.host !== null)) {
+    const host = signal.host!;
+    const key = `${host}:${signal.port ?? ""}`;
+    const group =
+      providerGroups.find((candidate) => candidate.provider!.name === host) ??
+      (isLoopback(host) ? providerGroups[0] : undefined) ??
+      endpointGroups.get(key) ??
+      endpointGroups.set(key, { endpoint: NO_ENDPOINT, signals: [] }).get(key)!;
+    if (group.endpoint.host === null) group.endpoint = { host, port: signal.port };
+    group.signals.push(signal);
+  }
+
+  const groups = [...providerGroups, ...endpointGroups.values()];
+  let fallback: Group | undefined;
+  for (const signal of signals.filter((candidate) => candidate.host === null)) {
+    const own = groups.filter((group) => sharesService(group, signal));
+    if (own.length > 0) {
+      for (const group of own) group.signals.push(signal);
+      continue;
+    }
+    if (!fallback) {
+      fallback = groups.length === 1 || providerGroups.length > 0 ? groups[0] : undefined;
+      if (!fallback) {
+        fallback = { endpoint: NO_ENDPOINT, signals: [] };
+        groups.push(fallback);
+      }
+    }
+    fallback.signals.push(signal);
+  }
+
+  for (const group of groups) {
+    group.signals.sort((a, b) => signals.indexOf(a) - signals.indexOf(b));
+  }
+  return groups;
+}
+
+function toInfra(kind: ScanInfraKind, { provider, endpoint, signals }: Group): ScanInfra {
   return {
     kind,
     usedBy: unique(signals.flatMap((signal) => signal.serviceIds)).filter(
@@ -324,12 +371,10 @@ export async function detectInfra(reader: ProjectReader, sources: InfraSource[])
       : [];
   });
 
-  return KINDS.flatMap((kind) => {
-    const infra = toInfra(
-      kind,
+  return KINDS.flatMap((kind) =>
+    groupSignals(
       signals.filter((signal) => signal.kind === kind),
       providers.filter((provider) => provider.kind === kind),
-    );
-    return infra ? [infra] : [];
-  });
+    ).map((group) => toInfra(kind, group)),
+  );
 }
