@@ -159,8 +159,9 @@ export function urlEndpoint(value: string): Endpoint {
     .split(",")[0]!
     .match(HOST_PORT);
   if (!match) return NO_ENDPOINT;
-  const port = match[2] ? Number(match[2]) : 0;
-  return { host: match[1]!, port: port >= 1 && port <= 65535 ? port : null };
+  if (match[2] === undefined) return { host: match[1]!, port: null };
+  const port = Number(match[2]);
+  return port >= 1 && port <= 65535 ? { host: match[1]!, port } : NO_ENDPOINT;
 }
 
 export function envInfra(key: string, value: string): (Endpoint & { kind: ScanInfraKind }) | undefined {

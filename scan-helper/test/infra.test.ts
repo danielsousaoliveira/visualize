@@ -118,6 +118,13 @@ describe("env URL credentials stay out of the output", () => {
   it("gives up on the host when the authority is ambiguous", () => {
     expect(urlEndpoint("postgres://admin:pa/ss@db:5432/app")).toEqual({ host: null, port: null });
   });
+
+  it.each(["postgres://db:99999/x", "postgres://db:0/x", "postgres://db:abc/x", "postgres://db:/x"])(
+    "rejects the malformed port in %s",
+    (value) => {
+      expect(urlEndpoint(value)).toEqual({ host: null, port: null });
+    },
+  );
 });
 
 describe("other ecosystems", () => {
