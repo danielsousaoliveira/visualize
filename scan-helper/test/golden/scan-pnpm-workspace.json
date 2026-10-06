@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "fixture-pnpm-workspace",
+    "rootPath": "/fixtures/scan/pnpm-workspace",
+    "gitBranch": null,
+    "type": "monorepo"
+  },
+  "services": [
+    {
+      "id": "apps/web",
+      "name": "web",
+      "kind": "app",
+      "rootDirectory": "apps/web",
+      "stackId": "vite",
+      "category": "frontend",
+      "packageManager": "npm",
+      "installCommand": "npm i --force",
+      "buildCommand": "npm run build",
+      "startCommand": null,
+      "port": 5173,
+      "hasDockerfile": false,
+      "devCommand": {
+        "argv": [
+          "pnpm",
+          "run",
+          "dev"
+        ],
+        "workingDirectory": "apps/web",
+        "source": "script:dev"
+      }
+    },
+    {
+      "id": "apps/api",
+      "name": "api",
+      "kind": "app",
+      "rootDirectory": "apps/api",
+      "stackId": "express",
+      "category": "backend",
+      "packageManager": "npm",
+      "installCommand": "npm i --force",
+      "buildCommand": null,
+      "startCommand": "npm run start",
+      "port": 3000,
+      "hasDockerfile": false,
+      "devCommand": {
+        "argv": [
+          "pnpm",
+          "run",
+          "start"
+        ],
+        "workingDirectory": "apps/api",
+        "source": "script:start"
+      }
+    }
+  ],
+  "composeFiles": [],
+  "composeServices": [],
+  "envRequirements": [],
+  "infra": [],
+  "connections": [],
+  "warnings": []
+}

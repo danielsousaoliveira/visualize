@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "node-dev",
+    "rootPath": "/fixtures/scan/node-dev",
+    "gitBranch": null,
+    "type": "app"
+  },
+  "services": [
+    {
+      "id": ".",
+      "name": "node-dev",
+      "kind": "app",
+      "rootDirectory": ".",
+      "stackId": "node",
+      "category": "backend",
+      "packageManager": "pnpm",
+      "installCommand": "pnpm install",
+      "buildCommand": null,
+      "startCommand": "pnpm start",
+      "port": 3000,
+      "hasDockerfile": false,
+      "devCommand": {
+        "argv": [
+          "pnpm",
+          "run",
+          "dev"
+        ],
+        "workingDirectory": ".",
+        "source": "script:dev"
+      }
+    }
+  ],
+  "composeFiles": [],
+  "composeServices": [],
+  "envRequirements": [],
+  "infra": [],
+  "connections": [],
+  "warnings": []
+}
