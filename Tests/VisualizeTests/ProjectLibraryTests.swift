@@ -160,6 +160,26 @@ struct ProjectLibraryTests {
         #expect(state.scanErrors[id] == nil)
     }
 
+    @Test func loadsAResultSavedBeforeInfraWasDecoded() throws {
+        defer { stub.remove() }
+        var result = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: Self.composeGolden)) as? [String: Any])
+        result.removeValue(forKey: "infra")
+        let project: [String: Any] = [
+            "id": UUID().uuidString,
+            "name": "old",
+            "folderPath": "/tmp/old",
+            "lastResult": result,
+        ]
+        try FileManager.default.createDirectory(at: stub.file("support"), withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: ["version": 1, "projects": [project]]).write(to: store.fileURL)
+
+        let projects = try store.load()
+
+        #expect(projects.map(\.name) == ["old"])
+        #expect(projects.first?.lastResult?.infra == [])
+        #expect(projects.first?.lastResult?.services.count == 3)
+    }
+
     @Test func movesAnUnreadableLibraryAsideInsteadOfOverwritingIt() throws {
         defer { stub.remove() }
         try FileManager.default.createDirectory(at: stub.file("support"), withIntermediateDirectories: true)

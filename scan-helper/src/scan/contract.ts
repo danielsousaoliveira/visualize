@@ -47,6 +47,17 @@ export interface ScanComposeService {
   environment: string[];
 }
 
+export type ScanInfraKind = "postgres" | "mysql" | "mongodb" | "redis" | "sqlite";
+
+export interface ScanInfra {
+  kind: ScanInfraKind;
+  usedBy: string[];
+  providedBy: string | null;
+  evidence: string[];
+  host: string | null;
+  port: number | null;
+}
+
 export interface ScanResult {
   schemaVersion: typeof SCHEMA_VERSION;
   project: ScanProject;
@@ -54,7 +65,7 @@ export interface ScanResult {
   composeFiles: string[];
   composeServices: ScanComposeService[];
   envRequirements: never[];
-  infra: never[];
+  infra: ScanInfra[];
   connections: never[];
   warnings: string[];
 }

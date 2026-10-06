@@ -15,10 +15,12 @@ type ServiceWithoutDevCommand = Omit<ScanService, "devCommand">;
 interface ScannedService {
   service: ScanService;
   warning?: string;
+  infraSource: InfraSource;
 }
 import type { ProjectReader } from "./local-reader";
 import { readProjectSnapshot, type ProjectInfo } from "./resolve";
 import { deriveDevCommand } from "./dev-command";
+import { detectInfra, type InfraSource } from "./infra";
 import type { StackId } from "../core";
 
 const DOCKERFILE = "Dockerfile";
@@ -150,7 +152,7 @@ async function withDevCommand(
   reader: ProjectReader,
   service: ServiceWithoutDevCommand,
   workspacePackageManager?: string,
-): Promise<ScannedService> {
+): Promise<Omit<ScannedService, "infraSource">> {
   if (!service.stackId) {
     return {
       service: { ...service, devCommand: null },
@@ -196,7 +198,10 @@ async function appService(
     port: source.port,
     hasDockerfile: await fileExists(reader, posix.join(rootDirectory, DOCKERFILE)),
   };
-  return withDevCommand(reader, service, workspacePackageManager);
+  return {
+    ...(await withDevCommand(reader, service, workspacePackageManager)),
+    infraSource: { serviceId: id, directory: rootDirectory },
+  };
 }
 
 function buildContext(service: ComposeService, composeDirectory: string): string | null {
@@ -215,8 +220,9 @@ async function composeService(
   const readable = context !== null && isLocalPath(context) && isInsideRoot(context);
   const stack = readable ? await detectStackIn(reader, context) : undefined;
   const dockerfile = posix.join(context ?? ".", service.dockerfile ?? DOCKERFILE);
-  return withDevCommand(reader, {
-    id: `compose:${service.name}`,
+  const id = `compose:${service.name}`;
+  const scanned = await withDevCommand(reader, {
+    id,
     name: service.name,
     kind: "compose",
     rootDirectory: readable ? context : composeDirectory,
@@ -233,6 +239,18 @@ async function composeService(
     port: containerPort(portMappings(service)),
     hasDockerfile: readable && (await fileExists(reader, dockerfile)),
   });
+  return {
+    ...scanned,
+    infraSource: {
+      serviceId: id,
+      directory: readable ? context : null,
+      compose: {
+        name: service.name,
+        image: service.image ?? null,
+        environment: service.environment,
+      },
+    },
+  };
 }
 
 function toComposeService(service: ComposeService, composeDirectory: string): ScanComposeService {
@@ -313,7 +331,10 @@ export async function toScanResult(info: ProjectInfo, reader: ProjectReader): Pr
       toComposeService(service, composeDirectory),
     ),
     envRequirements: [],
-    infra: [],
+    infra: await detectInfra(
+      reader,
+      scanned.map(({ infraSource }) => infraSource),
+    ),
     connections: [],
     warnings: [...collectWarnings(info), ...scanned.flatMap(({ warning }) => warning ?? [])],
   };

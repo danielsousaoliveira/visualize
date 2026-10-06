@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "infra-node-pg",
+    "rootPath": "/fixtures/scan/infra-node-pg",
+    "gitBranch": null,
+    "type": "app"
+  },
+  "services": [
+    {
+      "id": ".",
+      "name": "infra-node-pg",
+      "kind": "app",
+      "rootDirectory": ".",
+      "stackId": "express",
+      "category": "backend",
+      "packageManager": "npm",
+      "installCommand": "npm i --force",
+      "buildCommand": null,
+      "startCommand": "npm run start",
+      "port": 3000,
+      "hasDockerfile": false,
+      "devCommand": {
+        "argv": [
+          "npm",
+          "run",
+          "start"
+        ],
+        "workingDirectory": ".",
+        "source": "script:start"
+      }
+    }
+  ],
+  "composeFiles": [],
+  "composeServices": [],
+  "envRequirements": [],
+  "infra": [
+    {
+      "kind": "postgres",
+      "usedBy": [
+        "."
+      ],
+      "providedBy": null,
+      "evidence": [
+        "dependency pg in package.json"
+      ],
+      "host": null,
+      "port": null
+    }
+  ],
+  "connections": [],
+  "warnings": []
+}

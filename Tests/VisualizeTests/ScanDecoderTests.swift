@@ -52,6 +52,39 @@ struct ScanDecoderTests {
         #expect(db.environment == ["POSTGRES_PASSWORD", "POSTGRES_USER"])
     }
 
+    @Test func decodesInfra() throws {
+        let url = Self.goldenDirectory.appending(path: "scan-compose-env.json")
+        let result = try ScanDecoder.decode(Data(contentsOf: url))
+        #expect(result.infra == [
+            ScanInfra(
+                kind: .postgres,
+                usedBy: ["compose:api"],
+                providedBy: "compose:db",
+                evidence: ["image postgres:16 in compose service db", "env DATABASE_URL in compose service api"],
+                host: "db",
+                port: 5432
+            ),
+            ScanInfra(
+                kind: .redis,
+                usedBy: [],
+                providedBy: "compose:cache",
+                evidence: ["image redis:7 in compose service cache"],
+                host: nil,
+                port: nil
+            ),
+        ])
+    }
+
+    @Test func decodesInfraWithoutACompose() throws {
+        let url = Self.goldenDirectory.appending(path: "scan-infra-redis-env.json")
+        let result = try ScanDecoder.decode(Data(contentsOf: url))
+        let redis = try #require(result.infra.first)
+        #expect(redis.kind == .redis)
+        #expect(redis.providedBy == nil)
+        #expect(redis.host == "localhost")
+        #expect(redis.port == 6380)
+    }
+
     @Test func rejectsANewerSchemaVersion() throws {
         let url = Self.goldenDirectory.appending(path: "deploy-node.json")
         var object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
