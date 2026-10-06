@@ -34,7 +34,12 @@
   ],
   "composeFiles": [],
   "composeServices": [],
-  "envRequirements": [],
+  "envRequirements": [
+    {
+      "serviceId": ".",
+      "variables": []
+    }
+  ],
   "infra": [],
   "connections": [],
   "warnings": []

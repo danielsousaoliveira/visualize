@@ -56,7 +56,16 @@
   ],
   "composeFiles": [],
   "composeServices": [],
-  "envRequirements": [],
+  "envRequirements": [
+    {
+      "serviceId": "apps/web",
+      "variables": []
+    },
+    {
+      "serviceId": "apps/api",
+      "variables": []
+    }
+  ],
   "infra": [],
   "connections": [],
   "warnings": []

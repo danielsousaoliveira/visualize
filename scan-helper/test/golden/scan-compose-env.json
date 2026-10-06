@@ -115,7 +115,65 @@
       "environment": []
     }
   ],
-  "envRequirements": [],
+  "envRequirements": [
+    {
+      "serviceId": "compose:api",
+      "variables": [
+        {
+          "name": "API_PORT",
+          "status": "extra",
+          "declaredIn": [
+            ".env"
+          ]
+        },
+        {
+          "name": "API_SECRET",
+          "status": "extra",
+          "declaredIn": [
+            ".env"
+          ]
+        }
+      ]
+    },
+    {
+      "serviceId": "compose:db",
+      "variables": [
+        {
+          "name": "API_PORT",
+          "status": "extra",
+          "declaredIn": [
+            ".env"
+          ]
+        },
+        {
+          "name": "API_SECRET",
+          "status": "extra",
+          "declaredIn": [
+            ".env"
+          ]
+        }
+      ]
+    },
+    {
+      "serviceId": "compose:cache",
+      "variables": [
+        {
+          "name": "API_PORT",
+          "status": "extra",
+          "declaredIn": [
+            ".env"
+          ]
+        },
+        {
+          "name": "API_SECRET",
+          "status": "extra",
+          "declaredIn": [
+            ".env"
+          ]
+        }
+      ]
+    }
+  ],
   "infra": [
     {
       "kind": "postgres",

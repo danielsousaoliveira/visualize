@@ -16,11 +16,13 @@ interface ScannedService {
   service: ScanService;
   warning?: string;
   infraSource: InfraSource;
+  envSource: EnvSource;
 }
 import type { ProjectReader } from "./local-reader";
 import { readProjectSnapshot, type ProjectInfo } from "./resolve";
 import { deriveDevCommand } from "./dev-command";
 import { detectInfra, type InfraSource } from "./infra";
+import { detectEnvRequirements, type EnvComposeFile, type EnvSource } from "./env-requirements";
 import type { StackId } from "../core";
 
 const DOCKERFILE = "Dockerfile";
@@ -152,7 +154,7 @@ async function withDevCommand(
   reader: ProjectReader,
   service: ServiceWithoutDevCommand,
   workspacePackageManager?: string,
-): Promise<Omit<ScannedService, "infraSource">> {
+): Promise<Omit<ScannedService, "infraSource" | "envSource">> {
   if (!service.stackId) {
     return {
       service: { ...service, devCommand: null },
@@ -201,6 +203,7 @@ async function appService(
   return {
     ...(await withDevCommand(reader, service, workspacePackageManager)),
     infraSource: { serviceId: id, directory: rootDirectory },
+    envSource: { serviceId: id, serviceName: name, directory: rootDirectory, composeEnvFiles: [] },
   };
 }
 
@@ -241,6 +244,12 @@ async function composeService(
   });
   return {
     ...scanned,
+    envSource: {
+      serviceId: id,
+      serviceName: service.name,
+      directory: readable ? context : composeDirectory,
+      composeEnvFiles: composeEnvFiles(service, composeDirectory).readable,
+    },
     infraSource: {
       serviceId: id,
       directory: readable ? context : null,
@@ -251,6 +260,23 @@ async function composeService(
       },
     },
   };
+}
+
+function composeEnvFiles(
+  service: ComposeService,
+  composeDirectory: string,
+): { readable: EnvComposeFile[]; unreadable: string[] } {
+  const readable: EnvComposeFile[] = [];
+  const unreadable: string[] = [];
+  for (const { path, required } of service.envFiles ?? []) {
+    const relative =
+      isLocalPath(path) && !posix.isAbsolute(path)
+        ? toRelativeDirectory(posix.join(composeDirectory, path))
+        : null;
+    if (relative !== null && isInsideRoot(relative)) readable.push({ path: relative, required });
+    else unreadable.push(path);
+  }
+  return { readable, unreadable };
 }
 
 function toComposeService(service: ComposeService, composeDirectory: string): ScanComposeService {
@@ -264,7 +290,7 @@ function toComposeService(service: ComposeService, composeDirectory: string): Sc
   };
 }
 
-function collectWarnings(info: ProjectInfo): string[] {
+function collectWarnings(info: ProjectInfo, composeDirectory: string): string[] {
   const ignoredComposeFiles = (info.composeFiles ?? []).filter(
     (file) => file !== info.composeFileRead,
   );
@@ -279,6 +305,11 @@ function collectWarnings(info: ProjectInfo): string[] {
       service.ports
         .filter((spec) => toPortMapping(spec) === undefined)
         .map((spec) => `Service "${service.name}": port "${spec}" was not understood and is left out.`),
+    ),
+    ...(info.services ?? []).flatMap((service) =>
+      composeEnvFiles(service, composeDirectory).unreadable.map(
+        (path) => `Service "${service.name}": env_file ${path} is not a path inside the project and was not read.`,
+      ),
     ),
     ...(info.unsupportedCompose ?? []).map(
       ({ service, reason }) => `Service "${service}": ${reason}`,
@@ -317,6 +348,10 @@ async function collectServices(
 export async function toScanResult(info: ProjectInfo, reader: ProjectReader): Promise<ScanResult> {
   const composeDirectory = toRelativeDirectory(posix.dirname(info.composeFileRead ?? "."));
   const scanned = await collectServices(info, reader, composeDirectory);
+  const env = await detectEnvRequirements(
+    reader,
+    scanned.map(({ envSource }) => envSource),
+  );
   return {
     schemaVersion: SCHEMA_VERSION,
     project: {
@@ -330,12 +365,16 @@ export async function toScanResult(info: ProjectInfo, reader: ProjectReader): Pr
     composeServices: (info.services ?? []).map((service) =>
       toComposeService(service, composeDirectory),
     ),
-    envRequirements: [],
+    envRequirements: env.envRequirements,
     infra: await detectInfra(
       reader,
       scanned.map(({ infraSource }) => infraSource),
     ),
     connections: [],
-    warnings: [...collectWarnings(info), ...scanned.flatMap(({ warning }) => warning ?? [])],
+    warnings: [
+      ...collectWarnings(info, composeDirectory),
+      ...scanned.flatMap(({ warning }) => warning ?? []),
+      ...env.warnings,
+    ],
   };
 }

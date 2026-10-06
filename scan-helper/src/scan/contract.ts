@@ -58,13 +58,26 @@ export interface ScanInfra {
   port: number | null;
 }
 
+export type ScanEnvStatus = "set" | "missing" | "extra";
+
+export interface ScanEnvVariable {
+  name: string;
+  status: ScanEnvStatus;
+  declaredIn: string[];
+}
+
+export interface ScanEnvRequirement {
+  serviceId: string;
+  variables: ScanEnvVariable[];
+}
+
 export interface ScanResult {
   schemaVersion: typeof SCHEMA_VERSION;
   project: ScanProject;
   services: ScanService[];
   composeFiles: string[];
   composeServices: ScanComposeService[];
-  envRequirements: never[];
+  envRequirements: ScanEnvRequirement[];
   infra: ScanInfra[];
   connections: never[];
   warnings: string[];

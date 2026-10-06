@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
   "project": {
-    "name": "infra-redis-env",
-    "rootPath": "/fixtures/scan/infra-redis-env",
+    "name": "env-requirements",
+    "rootPath": "/fixtures/scan/env-requirements",
     "gitBranch": null,
     "type": "app"
   },
   "services": [
     {
       "id": ".",
-      "name": "infra-redis-env",
+      "name": "env-requirements",
       "kind": "app",
       "rootDirectory": ".",
-      "stackId": "express",
+      "stackId": "node",
       "category": "backend",
       "packageManager": "npm",
       "installCommand": "npm i --force",
@@ -38,29 +38,47 @@
       "serviceId": ".",
       "variables": [
         {
-          "name": "REDIS_URL",
+          "name": "A",
+          "status": "set",
+          "declaredIn": [
+            ".env.example",
+            ".env"
+          ]
+        },
+        {
+          "name": "B",
+          "status": "missing",
+          "declaredIn": [
+            ".env.example"
+          ]
+        },
+        {
+          "name": "C",
+          "status": "missing",
+          "declaredIn": [
+            ".env.example",
+            ".env"
+          ]
+        },
+        {
+          "name": "EXTRA_TOKEN",
           "status": "extra",
           "declaredIn": [
             ".env"
+          ]
+        },
+        {
+          "name": "LOCAL_ONLY",
+          "status": "set",
+          "declaredIn": [
+            ".env.example",
+            ".env.local"
           ]
         }
       ]
     }
   ],
-  "infra": [
-    {
-      "kind": "redis",
-      "usedBy": [
-        "."
-      ],
-      "providedBy": null,
-      "evidence": [
-        "env REDIS_URL in .env"
-      ],
-      "host": "localhost",
-      "port": 6380
-    }
-  ],
+  "infra": [],
   "connections": [],
   "warnings": []
 }
