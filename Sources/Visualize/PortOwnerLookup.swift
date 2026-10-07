@@ -4,17 +4,9 @@ import Darwin
 struct PortOwnerLookup {
     static func owners(port: Int, dockerOverridePath: String? = nil, includeDocker: Bool = true) throws -> [PortOwner] {
         guard (1...65535).contains(port) else { throw NSError(domain: "Invalid port", code: 1) }
-        let process = Process()
-        process.executableURL = URL(filePath: "/usr/sbin/lsof")
-        process.arguments = ["-nP", "-iTCP:\(port)", "-sTCP:LISTEN", "-Fpcu"]
-        process.standardInput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        let output = Pipe()
-        process.standardOutput = output
-        try process.run()
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 || (process.terminationStatus == 1 && data.isEmpty) else {
+        let result = try CommandOutput.run("/usr/sbin/lsof", arguments: ["-nP", "-iTCP:\(port)", "-sTCP:LISTEN", "-Fpcu"])
+        let data = result.data
+        guard result.status == 0 || (result.status == 1 && data.isEmpty) else {
             throw NSError(domain: "Could not check port \(port)", code: 1)
         }
         var records: [(Int32, String, UInt32?)] = []
@@ -40,17 +32,13 @@ struct PortOwnerLookup {
                              workingDirectory: directory)
         }
         guard includeDocker else { return owners }
-        let checker = DockerChecker()
-        let paths = (dockerOverridePath.map { [$0] } ?? []) + checker.searchPaths
-        guard let path = paths.map({ NSString(string: $0).expandingTildeInPath }).first(where: { FileManager.default.isExecutableFile(atPath: $0) }),
-              let contextData = checker.run(path, arguments: ["context", "show"]),
-              let endpointData = checker.run(path, arguments: ["context", "inspect", String(decoding: contextData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines), "--format", "{{json .Endpoints.docker.Host}}"]),
-              let endpoint = try? JSONDecoder().decode(String.self, from: endpointData), endpoint.hasPrefix("unix:///"),
-              let idsData = checker.run(path, arguments: ["--host", endpoint, "ps", "-q"]) else { return owners }
-        let ids = String(decoding: idsData, as: UTF8.self).split(separator: "\n").map(String.init)
-        guard !ids.isEmpty,
-              let details = checker.run(path, arguments: ["--host", endpoint, "inspect", "--format", "{\"Id\":{{json .Id}},\"Name\":{{json .Name}},\"Ports\":{{json .NetworkSettings.Ports}},\"ComposeProject\":{{json (index .Config.Labels \"com.docker.compose.project\")}}}"] + ids) else { return owners }
-        let containers = details.split(separator: 10).compactMap { try? JSONSerialization.jsonObject(with: Data($0)) as? [String: Any] }
+        let containers: [[String: Any]]
+        do {
+            containers = try dockerContainers(overridePath: dockerOverridePath)
+        } catch {
+            if dockerOverridePath != nil { throw error }
+            return owners
+        }
         var containerOwners: [PortOwner] = []
         for container in containers {
             guard let ports = container["Ports"] as? [String: Any],
@@ -63,11 +51,35 @@ struct PortOwnerLookup {
             owner.composeProject = (container["ComposeProject"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             containerOwners.append(owner)
         }
-        if !containerOwners.isEmpty {
-            owners.removeAll { ["com.docker", "com.dock", "docker-proxy", "dockerd", "orbstack"].contains(where: $0.name.lowercased().hasPrefix) }
-            owners.append(contentsOf: containerOwners)
-        }
+        owners.append(contentsOf: containerOwners)
         return owners
+    }
+
+    private static func dockerContainers(overridePath: String?) throws -> [[String: Any]] {
+        let paths = overridePath.map { [$0] } ?? DockerChecker().searchPaths
+        guard let path = paths.map({ NSString(string: $0).expandingTildeInPath }).first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
+            throw NSError(domain: "Docker owner lookup failed: executable unavailable", code: 1)
+        }
+        func run(_ arguments: [String]) throws -> Data {
+            let result = try CommandOutput.run(path, arguments: arguments)
+            guard result.status == 0 else { throw NSError(domain: "Docker owner lookup failed: \(arguments.first ?? "command")", code: Int(result.status)) }
+            return result.data
+        }
+        let context = String(decoding: try run(["context", "show"]), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !context.isEmpty else { throw NSError(domain: "Docker owner lookup failed: no context", code: 1) }
+        let endpointData = try run(["context", "inspect", context, "--format", "{{json .Endpoints.docker.Host}}"])
+        guard let endpoint = try? JSONDecoder().decode(String.self, from: endpointData), endpoint.hasPrefix("unix:///") else {
+            throw NSError(domain: "Docker owner lookup failed: local endpoint required", code: 1)
+        }
+        let ids = String(decoding: try run(["--host", endpoint, "ps", "-q"]), as: UTF8.self).split(separator: "\n").map(String.init)
+        guard !ids.isEmpty else { return [] }
+        let details = try run(["--host", endpoint, "inspect", "--format", "{\"Id\":{{json .Id}},\"Name\":{{json .Name}},\"Ports\":{{json .NetworkSettings.Ports}},\"ComposeProject\":{{json (index .Config.Labels \"com.docker.compose.project\")}}}"] + ids)
+        return try details.split(separator: 10).map {
+            guard let container = try JSONSerialization.jsonObject(with: Data($0)) as? [String: Any] else {
+                throw NSError(domain: "Docker owner lookup failed: invalid container metadata", code: 1)
+            }
+            return container
+        }
     }
 
 }

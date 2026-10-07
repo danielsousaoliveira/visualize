@@ -9,7 +9,7 @@ final class AppState {
     private(set) var serviceRuns: [String: ServiceRun] = [:]
     var portConflict: PortConflict?
     private var resolvingPorts: Set<String> = []
-    private var checkingPorts: Set<String> = []
+    private var startingServices: Set<String> = []
     private var ownedGroups: Set<Int32> = []
     private var loginEnvironment = Task { try await LocalProcess.environment() }
 
@@ -26,36 +26,11 @@ final class AppState {
         (UserDefaults.standard.stringArray(forKey: "approvedCommands.\(project.id)") ?? []).contains(recipe.approvalKey)
     }
 
-    func start(project: Project, service: ScanService, recipe: RunRecipe, storedEnvironment: [String: String]? = nil, bypassPortCheck: Bool = false) async {
+    func start(project: Project, service: ScanService, recipe: RunRecipe, storedEnvironment: [String: String]? = nil, allowBusyPort: Bool = false) async {
         let key = runKey(project: project, service: service)
-        guard serviceRuns[key]?.active != true, !checkingPorts.contains(key), !resolvingPorts.contains(key) else { return }
-        if !bypassPortCheck, let port = service.port {
-            guard portConflict == nil else {
-                reportDeferredStart(key: key, recipe: recipe)
-                return
-            }
-            checkingPorts.insert(key)
-            let override = dockerOverridePath
-            do {
-                let owners = try await Task.detached { try PortOwnerLookup.owners(port: port, dockerOverridePath: override) }.value
-                checkingPorts.remove(key)
-                if !owners.isEmpty {
-                    guard portConflict == nil else {
-                        reportDeferredStart(key: key, recipe: recipe)
-                        return
-                    }
-                    portConflict = PortConflict(project: project, service: service, recipe: recipe, environment: storedEnvironment, owners: owners)
-                    return
-                }
-            } catch {
-                checkingPorts.remove(key)
-                let failed = ServiceRun(recipe: recipe)
-                failed.active = false
-                failed.status = "Failed: \(error.localizedDescription)"
-                serviceRuns[key] = failed
-                return
-            }
-        }
+        guard serviceRuns[key]?.active != true, !startingServices.contains(key), !resolvingPorts.contains(key) else { return }
+        startingServices.insert(key)
+        defer { startingServices.remove(key) }
         let run = ServiceRun(recipe: recipe)
         serviceRuns[key] = run
         do {
@@ -71,6 +46,25 @@ final class AppState {
                 throw error
             }
             guard run.active, serviceRuns[key] === run else { return }
+            if let port = service.port {
+                if !allowBusyPort, portConflict != nil {
+                    reportDeferredStart(key: key, recipe: recipe)
+                    return
+                }
+                let override = dockerOverridePath
+                let owners = try await Task.detached { try PortOwnerLookup.owners(port: port, dockerOverridePath: override) }.value
+                guard run.active, serviceRuns[key] === run else { return }
+                if !allowBusyPort, !owners.isEmpty {
+                    if portConflict != nil {
+                        reportDeferredStart(key: key, recipe: recipe)
+                        return
+                    }
+                    run.active = false
+                    run.status = "Waiting for port conflict decision"
+                    portConflict = PortConflict(project: project, service: service, recipe: recipe, environment: storedEnvironment, owners: owners)
+                    return
+                }
+            }
             let recorded = RunRecipe(argv: recipe.argv, workingDirectory: recipe.workingDirectory, addedEnvironmentKeys: environment.keys.filter { ProcessInfo.processInfo.environment[$0] == nil }.sorted(), startedAt: Date())
             let actual = ServiceRun(recipe: recorded)
             serviceRuns[key] = actual
@@ -180,7 +174,7 @@ final class AppState {
                 }
             }
             resolvingPorts.remove(key)
-            await start(project: conflict.project, service: conflict.service, recipe: conflict.recipe, storedEnvironment: conflict.environment, bypassPortCheck: !stopOwners)
+            await start(project: conflict.project, service: conflict.service, recipe: conflict.recipe, storedEnvironment: conflict.environment, allowBusyPort: !stopOwners)
         } catch {
             let run = ServiceRun(recipe: conflict.recipe)
             run.active = false
