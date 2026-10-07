@@ -90,21 +90,6 @@ struct LocalProcess {
     }
 
     static func listening(port: Int, processGroup: Int32) -> Bool {
-        let process = Process()
-        process.executableURL = URL(filePath: "/usr/sbin/lsof")
-        process.arguments = ["-nP", "-iTCP:\(port)", "-sTCP:LISTEN", "-t"]
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            return String(decoding: data, as: UTF8.self).split(separator: "\n").contains {
-                guard let pid = Int32($0) else { return false }
-                return getpgid(pid) == processGroup
-            }
-        }
-        catch { return false }
+        (try? PortOwnerLookup.owners(port: port, includeDocker: false).contains { getpgid($0.pid) == processGroup }) ?? false
     }
 }

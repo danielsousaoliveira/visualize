@@ -21,6 +21,9 @@ struct MainWindow: View {
             detail
         }
         .frame(minWidth: 720, minHeight: 440)
+        .sheet(item: Binding(get: { appState.portConflict }, set: { appState.portConflict = $0 })) { conflict in
+            PortConflictSheet(conflict: conflict)
+        }
         .confirmationDialog(
             "Remove \(pendingRemoval?.name ?? "project") from visualize?",
             isPresented: isConfirmingRemoval,

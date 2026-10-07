@@ -45,7 +45,7 @@ struct DockerChecker: Sendable {
         return .running(provider: provider, composeAvailable: compose?.hasPrefix("2.") == true || compose?.hasPrefix("v2.") == true)
     }
 
-    private func run(_ path: String, arguments: [String]) -> Data? {
+    func run(_ path: String, arguments: [String]) -> Data? {
         let process = Process()
         let exited = DispatchSemaphore(value: 0)
         let outputURL = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)

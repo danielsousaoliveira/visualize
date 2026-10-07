@@ -7,6 +7,9 @@ final class AppState {
     private(set) var projects: [Project] = []
     var runningServices: [RunningService] = []
     private(set) var serviceRuns: [String: ServiceRun] = [:]
+    var portConflict: PortConflict?
+    private var resolvingPorts: Set<String> = []
+    private var checkingPorts: Set<String> = []
     private var ownedGroups: Set<Int32> = []
     private var loginEnvironment = Task { try await LocalProcess.environment() }
 
@@ -23,9 +26,30 @@ final class AppState {
         (UserDefaults.standard.stringArray(forKey: "approvedCommands.\(project.id)") ?? []).contains(recipe.approvalKey)
     }
 
-    func start(project: Project, service: ScanService, recipe: RunRecipe, storedEnvironment: [String: String]? = nil) async {
+    func start(project: Project, service: ScanService, recipe: RunRecipe, storedEnvironment: [String: String]? = nil, bypassPortCheck: Bool = false) async {
         let key = runKey(project: project, service: service)
-        guard serviceRuns[key]?.active != true else { return }
+        guard serviceRuns[key]?.active != true, !checkingPorts.contains(key), !resolvingPorts.contains(key) else { return }
+        if !bypassPortCheck, let port = service.port {
+            guard portConflict == nil else { return }
+            checkingPorts.insert(key)
+            let override = dockerOverridePath
+            do {
+                let owners = try await Task.detached { try PortOwnerLookup.owners(port: port, dockerOverridePath: override) }.value
+                checkingPorts.remove(key)
+                if !owners.isEmpty {
+                    guard portConflict == nil else { return }
+                    portConflict = PortConflict(project: project, service: service, recipe: recipe, environment: storedEnvironment, owners: owners)
+                    return
+                }
+            } catch {
+                checkingPorts.remove(key)
+                let failed = ServiceRun(recipe: recipe)
+                failed.active = false
+                failed.status = "Failed: \(error.localizedDescription)"
+                serviceRuns[key] = failed
+                return
+            }
+        }
         let run = ServiceRun(recipe: recipe)
         serviceRuns[key] = run
         do {
@@ -89,6 +113,57 @@ final class AppState {
         } catch {
             serviceRuns[key]?.active = false
             serviceRuns[key]?.status = "Failed: \(error.localizedDescription)"
+        }
+    }
+
+    func projectName(for owner: PortOwner) -> String? {
+        guard let directory = owner.workingDirectory else { return nil }
+        let path = Project.canonicalPath(of: URL(filePath: directory))
+        return projects.sorted { $0.folderPath.count > $1.folderPath.count }.first {
+            path == $0.folderPath || path.hasPrefix($0.folderPath + "/")
+        }?.name
+    }
+
+    func owns(_ owner: PortOwner) -> Bool {
+        serviceRuns.values.contains { $0.active && $0.group?.pid == getpgid(owner.pid) }
+    }
+
+    func resolve(_ conflict: PortConflict, stopOwners: Bool) async {
+        guard portConflict?.id == conflict.id else { return }
+        let key = runKey(project: conflict.project, service: conflict.service)
+        guard !resolvingPorts.contains(key) else { return }
+        resolvingPorts.insert(key)
+        defer { resolvingPorts.remove(key) }
+        portConflict = nil
+        do {
+            if stopOwners {
+                for owner in conflict.owners {
+                    guard owner.canStop else { throw NSError(domain: "Owned by another user", code: 1) }
+                    if owner.containerID != nil {
+                        try await Task.detached { try PortOwnerLookup.stopContainer(owner) }.value
+                    } else if let run = serviceRuns.values.first(where: { $0.active && $0.group?.pid == getpgid(owner.pid) }) {
+                        guard await stop(run) else { throw NSError(domain: "Could not stop owned service", code: 1) }
+                    } else {
+                        try owner.terminate()
+                    }
+                }
+                let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+                while true {
+                    let port = conflict.owners[0].port
+                    let override = dockerOverridePath
+                    let remaining = try await Task.detached { try PortOwnerLookup.owners(port: port, dockerOverridePath: override) }.value
+                    if remaining.isEmpty { break }
+                    guard ContinuousClock.now < deadline else { throw NSError(domain: "Port is still in use; service was not started", code: 1) }
+                    try await Task.sleep(for: .milliseconds(200))
+                }
+            }
+            resolvingPorts.remove(key)
+            await start(project: conflict.project, service: conflict.service, recipe: conflict.recipe, storedEnvironment: conflict.environment, bypassPortCheck: !stopOwners)
+        } catch {
+            let run = ServiceRun(recipe: conflict.recipe)
+            run.active = false
+            run.status = "Failed: \(error.localizedDescription)"
+            serviceRuns[runKey(project: conflict.project, service: conflict.service)] = run
         }
     }
 
