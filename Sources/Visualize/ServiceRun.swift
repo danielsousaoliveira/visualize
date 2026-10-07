@@ -14,6 +14,13 @@ final class ServiceRun {
     var launchEnvironment: [String: String] = [:]
     var portReady = false
     var output = Data()
+    var outputFinished = false
+    var hasBindFailure: Bool {
+        let text = String(decoding: output, as: UTF8.self).lowercased()
+        return text.contains("eaddrinuse") || text.contains("address already in use")
+    }
+
+    func finishOutput() { outputFinished = true }
     var active = true
 
     init(recipe: RunRecipe) { self.recipe = recipe }

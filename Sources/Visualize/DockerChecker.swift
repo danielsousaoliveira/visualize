@@ -18,7 +18,7 @@ struct DockerChecker: Sendable {
     }
 
     private func inspect(overridePath: String?) -> DockerState {
-        let paths = (overridePath.map { [$0] } ?? []) + searchPaths
+        let paths = overridePath.map { [$0] } ?? searchPaths
         guard let path = paths.map({ NSString(string: $0).expandingTildeInPath })
             .first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
             return .cliNotFound
@@ -45,34 +45,8 @@ struct DockerChecker: Sendable {
         return .running(provider: provider, composeAvailable: compose?.hasPrefix("2.") == true || compose?.hasPrefix("v2.") == true)
     }
 
-    private func run(_ path: String, arguments: [String]) -> Data? {
-        let process = Process()
-        let exited = DispatchSemaphore(value: 0)
-        let outputURL = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-        guard FileManager.default.createFile(atPath: outputURL.path, contents: nil),
-              let output = try? FileHandle(forUpdating: outputURL) else { return nil }
-        defer {
-            try? output.close()
-            try? FileManager.default.removeItem(at: outputURL)
-        }
-        process.executableURL = URL(fileURLWithPath: path)
-        process.arguments = arguments
-        process.environment = [
-            "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
-            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-        ]
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-        process.terminationHandler = { _ in exited.signal() }
-        do { try process.run() } catch { return nil }
-        guard exited.wait(timeout: .now() + 5) == .success else {
-            kill(process.processIdentifier, SIGKILL)
-            exited.wait()
-            return nil
-        }
-        guard process.terminationReason == .exit, process.terminationStatus == 0 else { return nil }
-        try? output.seek(toOffset: 0)
-        return try? output.readToEnd()
+    func run(_ path: String, arguments: [String]) -> Data? {
+        guard let result = try? CommandOutput.run(path, arguments: arguments), result.status == 0 else { return nil }
+        return result.data
     }
 }

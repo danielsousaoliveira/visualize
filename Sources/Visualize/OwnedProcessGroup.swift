@@ -13,6 +13,17 @@ struct OwnedProcessGroup: Sendable {
         return Self(pid: pid, seconds: info.pbi_start_tvsec, microseconds: info.pbi_start_tvusec)
     }
 
+    func contains(_ owner: PortOwner) -> Bool {
+        // Process queries are not atomic; signal(_:) revalidates the captured group identity before sending a signal.
+        guard owner.containerID == nil, owner.pid > 1, owner.uid == getuid(), owner.uid != 0,
+              let current = Self.capture(pid), current.seconds == seconds,
+              current.microseconds == microseconds, getpgid(owner.pid) == pid else { return false }
+        var info = proc_bsdinfo()
+        guard proc_pidinfo(owner.pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size)) == MemoryLayout<proc_bsdinfo>.size else { return false }
+        return info.pbi_uid == owner.uid && info.pbi_start_tvsec == owner.seconds &&
+            info.pbi_start_tvusec == owner.microseconds && getpgid(owner.pid) == pid
+    }
+
     var exists: Bool {
         let bytes = proc_listpids(UInt32(PROC_PGRP_ONLY), UInt32(pid), nil, 0)
         guard bytes > 0 else { return !confirmedGone }
