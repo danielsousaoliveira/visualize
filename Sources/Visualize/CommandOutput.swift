@@ -17,6 +17,7 @@ struct CommandOutput {
         defer { try? output.close() }
         process.executableURL = URL(filePath: path)
         process.arguments = arguments
+        // Inherit only HOME and a fixed PATH so ambient Docker endpoint and configuration variables cannot redirect lookups.
         process.environment = ["HOME": FileManager.default.homeDirectoryForCurrentUser.path, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = output

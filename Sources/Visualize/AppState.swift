@@ -8,6 +8,7 @@ final class AppState {
     var runningServices: [RunningService] = []
     private(set) var serviceRuns: [String: ServiceRun] = [:]
     var portConflict: PortConflict?
+    var portLookupError: String?
     private var resolvingPorts: Set<String> = []
     private var startingServices: Set<String> = []
     private var ownedGroups: Set<Int32> = []
@@ -46,25 +47,7 @@ final class AppState {
                 throw error
             }
             guard run.active, serviceRuns[key] === run else { return }
-            if let port = service.port {
-                if !allowBusyPort, portConflict != nil {
-                    reportDeferredStart(key: key, recipe: recipe)
-                    return
-                }
-                let override = dockerOverridePath
-                let owners = try await Task.detached { try PortOwnerLookup.owners(port: port, dockerOverridePath: override) }.value
-                guard run.active, serviceRuns[key] === run else { return }
-                if !allowBusyPort, !owners.isEmpty {
-                    if portConflict != nil {
-                        reportDeferredStart(key: key, recipe: recipe)
-                        return
-                    }
-                    run.active = false
-                    run.status = "Waiting for port conflict decision"
-                    portConflict = PortConflict(project: project, service: service, recipe: recipe, environment: storedEnvironment, owners: owners)
-                    return
-                }
-            }
+            guard try await checkAndResolvePortConflict(project: project, service: service, run: run, storedEnvironment: storedEnvironment, allowBusyPort: allowBusyPort) else { return }
             let recorded = RunRecipe(argv: recipe.argv, workingDirectory: recipe.workingDirectory, addedEnvironmentKeys: environment.keys.filter { ProcessInfo.processInfo.environment[$0] == nil }.sorted(), startedAt: Date())
             let actual = ServiceRun(recipe: recorded)
             serviceRuns[key] = actual
@@ -87,6 +70,7 @@ final class AppState {
                     await actual.append(data)
                 }
                 try? output.close()
+                await actual.finishOutput()
                 while kill(-pid, 0) == 0 { try? await Task.sleep(for: .milliseconds(100)) }
                 await self.releaseGroup(pid)
             }
@@ -99,7 +83,14 @@ final class AppState {
                 }
                 while waitpid(pid, &status, 0) == -1 && errno == EINTR {}
                 let code = status & 0x7f == 0 ? (status >> 8) & 0xff : 128 + (status & 0x7f)
+                let outputDeadline = ContinuousClock.now.advanced(by: .seconds(1))
+                while !(await actual.outputFinished), ContinuousClock.now < outputDeadline {
+                    try? await Task.sleep(for: .milliseconds(50))
+                }
                 await self.finished(actual, code: code, runningID: runningID)
+                if code != 0, !allowBusyPort {
+                    await self.recheckBindFailure(project: project, service: service, run: actual)
+                }
             }
             if let port = service.port {
                 Task {
@@ -113,6 +104,55 @@ final class AppState {
         } catch {
             serviceRuns[key]?.active = false
             serviceRuns[key]?.status = "Failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func portOwners(_ port: Int) async throws -> [PortOwner] {
+        let override = dockerOverridePath
+        do {
+            return try await Task.detached { try PortOwnerLookup.owners(port: port, dockerOverridePath: override) }.value
+        } catch {
+            portLookupError = error.localizedDescription
+            throw error
+        }
+    }
+
+    private func checkAndResolvePortConflict(project: Project, service: ScanService, run: ServiceRun, storedEnvironment: [String: String]?, allowBusyPort: Bool) async throws -> Bool {
+        let key = runKey(project: project, service: service)
+        guard let port = service.port else { return true }
+        if !allowBusyPort, portConflict != nil {
+            reportDeferredStart(key: key, recipe: run.recipe)
+            return false
+        }
+        let owners = try await portOwners(port)
+        guard run.active, serviceRuns[key] === run else { return false }
+        guard !allowBusyPort, !owners.isEmpty else { return true }
+        if portConflict != nil {
+            reportDeferredStart(key: key, recipe: run.recipe)
+            return false
+        }
+        run.active = false
+        run.status = "Waiting for port conflict decision"
+        portConflict = PortConflict(project: project, service: service, recipe: run.recipe, environment: storedEnvironment, owners: owners)
+        return false
+    }
+
+    private func recheckBindFailure(project: Project, service: ScanService, run: ServiceRun) async {
+        let key = runKey(project: project, service: service)
+        guard let port = service.port, run.hasBindFailure, !run.stopping, serviceRuns[key] === run,
+              !startingServices.contains(key), !resolvingPorts.contains(key) else { return }
+        do {
+            let owners = try await portOwners(port)
+            guard serviceRuns[key] === run, !run.active, !run.stopping,
+                  !startingServices.contains(key), !resolvingPorts.contains(key), !owners.isEmpty else { return }
+            if portConflict != nil {
+                run.status = "Port bind failed: resolve the open conflict, then press Play again"
+                return
+            }
+            run.status = "Port bind failed; waiting for conflict decision"
+            portConflict = PortConflict(project: project, service: service, recipe: run.recipe, environment: run.launchEnvironment, owners: owners)
+        } catch {
+            if serviceRuns[key] === run { run.status = "Port bind failed: \(error.localizedDescription)" }
         }
     }
 
@@ -166,8 +206,7 @@ final class AppState {
                 let deadline = ContinuousClock.now.advanced(by: .seconds(10))
                 while true {
                     let port = conflict.owners[0].port
-                    let override = dockerOverridePath
-                    let remaining = try await Task.detached { try PortOwnerLookup.owners(port: port, dockerOverridePath: override) }.value
+                    let remaining = try await portOwners(port)
                     if remaining.isEmpty { break }
                     guard ContinuousClock.now < deadline else { throw NSError(domain: "Port is still in use; service was not started", code: 1) }
                     try await Task.sleep(for: .milliseconds(200))

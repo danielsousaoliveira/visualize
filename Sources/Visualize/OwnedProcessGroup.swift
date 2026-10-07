@@ -14,6 +14,7 @@ struct OwnedProcessGroup: Sendable {
     }
 
     func contains(_ owner: PortOwner) -> Bool {
+        // Process queries are not atomic; signal(_:) revalidates the captured group identity before sending a signal.
         guard owner.containerID == nil, owner.pid > 1, owner.uid == getuid(), owner.uid != 0,
               let current = Self.capture(pid), current.seconds == seconds,
               current.microseconds == microseconds, getpgid(owner.pid) == pid else { return false }

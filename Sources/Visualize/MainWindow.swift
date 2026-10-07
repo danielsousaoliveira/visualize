@@ -24,6 +24,11 @@ struct MainWindow: View {
         .sheet(item: Binding(get: { appState.portConflict }, set: { appState.portConflict = $0 })) { conflict in
             PortConflictSheet(conflict: conflict)
         }
+        .alert("Port lookup failed", isPresented: Binding(get: { appState.portLookupError != nil }, set: { if !$0 { appState.portLookupError = nil } })) {
+            Button("OK") { appState.portLookupError = nil }
+        } message: {
+            Text(appState.portLookupError ?? "")
+        }
         .confirmationDialog(
             "Remove \(pendingRemoval?.name ?? "project") from visualize?",
             isPresented: isConfirmingRemoval,
