@@ -8,6 +8,7 @@ struct ScanResult: Codable, Hashable {
     var composeServices: [ScanComposeService]
     var envRequirements: [ScanEnvRequirement]
     var infra: [ScanInfra]
+    var connections: [ScanConnection]
     var warnings: [String]
 
     var summary: String {
@@ -32,7 +33,8 @@ extension ScanResult {
         composeFiles = try container.decode([String].self, forKey: .composeFiles)
         composeServices = try container.decode([ScanComposeService].self, forKey: .composeServices)
         envRequirements = try container.decodeIfPresent([ScanEnvRequirement].self, forKey: .envRequirements) ?? []
-        infra = try container.decodeIfPresent([ScanInfra].self, forKey: .infra) ?? []
+        infra = try container.decodeIfPresent([ScanInfra].self, forKey: .infra)?.fillingMissingIds() ?? []
+        connections = try container.decodeIfPresent([ScanConnection].self, forKey: .connections) ?? []
         warnings = try container.decode([String].self, forKey: .warnings)
     }
 }
