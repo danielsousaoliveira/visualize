@@ -6,7 +6,6 @@ import Observation
 final class AppState {
     private(set) var projects: [Project] = []
     var runningServices: [RunningService] = []
-    private(set) var runHistory: [String: [RunRecipe]] = [:]
     private(set) var serviceRuns: [String: ServiceRun] = [:]
     private var ownedGroups: Set<Int32> = []
     private let loginEnvironment = Task { try await LocalProcess.environment() }
@@ -35,7 +34,6 @@ final class AppState {
             let actual = ServiceRun(recipe: recorded)
             serviceRuns[key] = actual
             let (pid, output) = try LocalProcess.start(recorded, environment: environment)
-            runHistory[key, default: []].append(recorded)
             ownedGroups.insert(pid)
             actual.pid = pid
             actual.status = "Running (pid \(pid))"
@@ -47,12 +45,11 @@ final class AppState {
             UserDefaults.standard.set(approvals, forKey: approvalStore)
             Task.detached {
                 while true {
-                    let data = output.availableData
-                    if !data.isEmpty { await actual.append(data) }
-                    if data.isEmpty && kill(-pid, 0) != 0 { break }
-                    try? await Task.sleep(for: .milliseconds(100))
+                    guard let data = try? output.read(upToCount: 65_536), !data.isEmpty else { break }
+                    await actual.append(data)
                 }
                 try? output.close()
+                while kill(-pid, 0) == 0 { try? await Task.sleep(for: .milliseconds(100)) }
                 await self.releaseGroup(pid)
             }
             Task.detached {
@@ -64,7 +61,7 @@ final class AppState {
             if let port = service.port {
                 Task {
                     while actual.active {
-                        actual.portReady = await Task.detached { LocalProcess.listening(port: port) }.value
+                        actual.portReady = await Task.detached { LocalProcess.listening(port: port, processGroup: pid) }.value
                         try? await Task.sleep(for: .seconds(1))
                     }
                     actual.portReady = false

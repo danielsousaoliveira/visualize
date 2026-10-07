@@ -38,7 +38,7 @@ struct LocalProcess {
         }.value
     }
 
-    static func start(_ recipe: RunRecipe, environment: [String: String]) throws -> (Int32, FileHandle) {
+    static func start(_ recipe: RunRecipe, environment: [String: String], outputDrainerURL: URL? = nil) throws -> (Int32, FileHandle) {
         guard let executable = recipe.argv.first, !executable.isEmpty,
               !recipe.argv.contains(where: { $0.contains("\0") }) else { throw NSError(domain: "Invalid command", code: 1) }
         let candidates = executable.contains("/") ? [NSString(string: executable).isAbsolutePath ? executable : URL(filePath: recipe.workingDirectory).appending(path: executable).path] :
@@ -48,14 +48,19 @@ struct LocalProcess {
         guard let path = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
             throw NSError(domain: "Tool not found in login PATH: \(executable)", code: 1)
         }
-        let outputURL = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-        guard FileManager.default.createFile(atPath: outputURL.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
-            throw NSError(domain: "Could not create service output buffer", code: 1)
-        }
-        defer { try? FileManager.default.removeItem(at: outputURL) }
-        let writer = try FileHandle(forWritingTo: outputURL)
-        defer { try? writer.close() }
-        let reader = try FileHandle(forReadingFrom: outputURL)
+        let serviceOutput = Pipe()
+        let capturedOutput = Pipe()
+        let drainer = Process()
+        drainer.executableURL = outputDrainerURL ?? Bundle.main.executableURL
+        drainer.arguments = ["--drain-service-output"]
+        drainer.standardInput = serviceOutput.fileHandleForReading
+        drainer.standardOutput = capturedOutput.fileHandleForWriting
+        drainer.standardError = FileHandle.nullDevice
+        try drainer.run()
+        try? serviceOutput.fileHandleForReading.close()
+        try? capturedOutput.fileHandleForWriting.close()
+        defer { try? serviceOutput.fileHandleForWriting.close() }
+        let reader = capturedOutput.fileHandleForReading
         var launched = false
         defer { if !launched { try? reader.close() } }
         var actions: posix_spawn_file_actions_t?
@@ -66,8 +71,8 @@ struct LocalProcess {
         posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT))
         posix_spawnattr_setpgroup(&attributes, 0)
         posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0)
-        posix_spawn_file_actions_adddup2(&actions, writer.fileDescriptor, STDOUT_FILENO)
-        posix_spawn_file_actions_adddup2(&actions, writer.fileDescriptor, STDERR_FILENO)
+        posix_spawn_file_actions_adddup2(&actions, serviceOutput.fileHandleForWriting.fileDescriptor, STDOUT_FILENO)
+        posix_spawn_file_actions_adddup2(&actions, serviceOutput.fileHandleForWriting.fileDescriptor, STDERR_FILENO)
         let directoryError = posix_spawn_file_actions_addchdir_np(&actions, recipe.workingDirectory)
         guard directoryError == 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(directoryError)) }
         let argv = recipe.argv.map { strdup($0) } + [nil]
@@ -84,13 +89,22 @@ struct LocalProcess {
         return (pid, reader)
     }
 
-    static func listening(port: Int) -> Bool {
+    static func listening(port: Int, processGroup: Int32) -> Bool {
         let process = Process()
         process.executableURL = URL(filePath: "/usr/sbin/lsof")
         process.arguments = ["-nP", "-iTCP:\(port)", "-sTCP:LISTEN", "-t"]
-        process.standardOutput = FileHandle.nullDevice
+        let output = Pipe()
+        process.standardOutput = output
         process.standardError = FileHandle.nullDevice
-        do { try process.run(); process.waitUntilExit(); return process.terminationStatus == 0 }
+        do {
+            try process.run()
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            return String(decoding: data, as: UTF8.self).split(separator: "\n").contains {
+                guard let pid = Int32($0) else { return false }
+                return getpgid(pid) == processGroup
+            }
+        }
         catch { return false }
     }
 }

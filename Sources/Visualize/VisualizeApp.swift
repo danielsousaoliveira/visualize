@@ -1,6 +1,5 @@
 import SwiftUI
 
-@main
 struct VisualizeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var appState: AppState
