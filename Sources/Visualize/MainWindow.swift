@@ -68,9 +68,11 @@ struct MainWindow: View {
                 project: project,
                 isScanning: appState.isScanning(project.id),
                 error: appState.scanErrors[project.id],
+                onRescan: { rescan(project) },
                 onLocate: { locate(project) },
                 onRemove: { pendingRemoval = project }
             )
+            .id(project.id)
             .navigationTitle(project.name)
             .toolbar {
                 ToolbarItemGroup {
