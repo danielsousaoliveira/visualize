@@ -43,6 +43,7 @@
   ],
   "infra": [
     {
+      "id": "infra:mongodb",
       "kind": "mongodb",
       "usedBy": [
         "."
@@ -55,6 +56,13 @@
       "port": null
     }
   ],
-  "connections": [],
+  "connections": [
+    {
+      "from": ".",
+      "to": "infra:mongodb",
+      "kind": "uses-infra",
+      "label": "mongodb"
+    }
+  ],
   "warnings": []
 }

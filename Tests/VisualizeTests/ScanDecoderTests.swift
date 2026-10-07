@@ -57,6 +57,7 @@ struct ScanDecoderTests {
         let result = try ScanDecoder.decode(Data(contentsOf: url))
         #expect(result.infra == [
             ScanInfra(
+                id: "infra:postgres",
                 kind: .postgres,
                 usedBy: ["compose:api"],
                 providedBy: "compose:db",
@@ -65,6 +66,7 @@ struct ScanDecoderTests {
                 port: 5432
             ),
             ScanInfra(
+                id: "infra:redis",
                 kind: .redis,
                 usedBy: [],
                 providedBy: "compose:cache",
@@ -73,6 +75,22 @@ struct ScanDecoderTests {
                 port: nil
             ),
         ])
+    }
+
+    @Test func decodesConnections() throws {
+        let url = Self.goldenDirectory.appending(path: "scan-connections-workspace.json")
+        let result = try ScanDecoder.decode(Data(contentsOf: url))
+        #expect(result.connections == [
+            ScanConnection(from: "apps/web", to: "apps/api", kind: .envURL, label: "NEXT_PUBLIC_API_URL"),
+            ScanConnection(from: "apps/web", to: "apps/api", kind: .workspaceDep, label: "api"),
+            ScanConnection(from: "apps/api", to: "infra:postgres", kind: .usesInfra, label: "postgres"),
+        ])
+    }
+
+    @Test func decodesDependsOnConnections() throws {
+        let url = Self.goldenDirectory.appending(path: "scan-compose-env.json")
+        let result = try ScanDecoder.decode(Data(contentsOf: url))
+        #expect(result.connections.filter { $0.kind == .dependsOn }.map(\.to) == ["compose:db", "compose:cache"])
     }
 
     @Test func decodesInfraWithoutACompose() throws {

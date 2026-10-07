@@ -182,6 +182,35 @@ struct ProjectLibraryTests {
         #expect(projects.first?.lastResult?.services.count == 3)
     }
 
+    @Test func loadsAResultSavedBeforeConnectionsAndInfraIds() throws {
+        defer { stub.remove() }
+        var result = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: Self.composeGolden)) as? [String: Any])
+        let infra = try #require(result["infra"] as? [[String: Any]])
+        result["infra"] = infra.map { entry in entry.filter { $0.key != "id" } }
+        result.removeValue(forKey: "connections")
+        let project: [String: Any] = [
+            "id": UUID().uuidString,
+            "name": "old",
+            "folderPath": "/tmp/old",
+            "lastResult": result,
+        ]
+        try FileManager.default.createDirectory(at: stub.file("support"), withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: ["version": 1, "projects": [project]]).write(to: store.fileURL)
+
+        let projects = try store.load()
+
+        #expect(projects.first?.lastResult?.connections == [])
+        #expect(projects.first?.lastResult?.infra.map(\.id) == ["infra:postgres", "infra:redis"])
+    }
+
+    @Test func numbersMissingInfraIdsPerKindLikeTheHelper() {
+        let entry = { (kind: ScanInfraKind) in
+            ScanInfra(id: "", kind: kind, usedBy: [], providedBy: nil, evidence: ["e"], host: nil, port: nil)
+        }
+        let filled = [entry(.postgres), entry(.postgres), entry(.redis), entry(.postgres)].fillingMissingIds()
+        #expect(filled.map(\.id) == ["infra:postgres", "infra:postgres-2", "infra:redis", "infra:postgres-3"])
+    }
+
     @Test func movesAnUnreadableLibraryAsideInsteadOfOverwritingIt() throws {
         defer { stub.remove() }
         try FileManager.default.createDirectory(at: stub.file("support"), withIntermediateDirectories: true)

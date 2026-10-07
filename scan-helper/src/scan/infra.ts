@@ -340,8 +340,13 @@ function groupSignals(signals: Signal[], providers: Provider[]): Group[] {
   return groups;
 }
 
-function toInfra(kind: ScanInfraKind, { provider, endpoint, signals }: Group): ScanInfra {
+function infraId(kind: ScanInfraKind, index: number): string {
+  return index === 0 ? `infra:${kind}` : `infra:${kind}-${index + 1}`;
+}
+
+function toInfra(kind: ScanInfraKind, { provider, endpoint, signals }: Group, index: number): ScanInfra {
   return {
+    id: infraId(kind, index),
     kind,
     usedBy: unique(signals.flatMap((signal) => signal.serviceIds)).filter(
       (id) => id !== provider?.serviceId,
@@ -394,6 +399,6 @@ export async function detectInfra(reader: ProjectReader, sources: InfraSource[])
     groupSignals(
       signals.filter((signal) => signal.kind === kind),
       providers.filter((provider) => provider.kind === kind),
-    ).map((group) => toInfra(kind, group)),
+    ).map((group, index) => toInfra(kind, group, index)),
   );
 }

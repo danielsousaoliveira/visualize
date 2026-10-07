@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "fixture-connections-workspace",
+    "rootPath": "/fixtures/scan/connections-workspace",
+    "gitBranch": null,
+    "type": "monorepo"
+  },
+  "services": [
+    {
+      "id": "apps/web",
+      "name": "web",
+      "kind": "app",
+      "rootDirectory": "apps/web",
+      "stackId": "node",
+      "category": "backend",
+      "packageManager": "npm",
+      "installCommand": "npm i --force",
+      "buildCommand": "npm run build",
+      "startCommand": "npm run start",
+      "port": 3000,
+      "hasDockerfile": false,
+      "devCommand": {
+        "argv": [
+          "pnpm",
+          "run",
+          "dev"
+        ],
+        "workingDirectory": "apps/web",
+        "source": "script:dev"
+      }
+    },
+    {
+      "id": "apps/api",
+      "name": "api",
+      "kind": "app",
+      "rootDirectory": "apps/api",
+      "stackId": "express",
+      "category": "backend",
+      "packageManager": "npm",
+      "installCommand": "npm i --force",
+      "buildCommand": null,
+      "startCommand": "npm run start",
+      "port": 4000,
+      "hasDockerfile": false,
+      "devCommand": {
+        "argv": [
+          "pnpm",
+          "run",
+          "start"
+        ],
+        "workingDirectory": "apps/api",
+        "source": "script:start"
+      }
+    }
+  ],
+  "composeFiles": [],
+  "composeServices": [],
+  "envRequirements": [
+    {
+      "serviceId": "apps/web",
+      "variables": [
+        {
+          "name": "NEXT_PUBLIC_API_URL",
+          "status": "extra",
+          "declaredIn": [
+            "apps/web/.env"
+          ]
+        }
+      ]
+    },
+    {
+      "serviceId": "apps/api",
+      "variables": []
+    }
+  ],
+  "infra": [
+    {
+      "id": "infra:postgres",
+      "kind": "postgres",
+      "usedBy": [
+        "apps/api"
+      ],
+      "providedBy": null,
+      "evidence": [
+        "dependency pg in apps/api/package.json"
+      ],
+      "host": null,
+      "port": null
+    }
+  ],
+  "connections": [
+    {
+      "from": "apps/web",
+      "to": "apps/api",
+      "kind": "env-url",
+      "label": "NEXT_PUBLIC_API_URL"
+    },
+    {
+      "from": "apps/web",
+      "to": "apps/api",
+      "kind": "workspace-dep",
+      "label": "api"
+    },
+    {
+      "from": "apps/api",
+      "to": "infra:postgres",
+      "kind": "uses-infra",
+      "label": "postgres"
+    }
+  ],
+  "warnings": []
+}

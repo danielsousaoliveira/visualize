@@ -17,12 +17,14 @@ interface ScannedService {
   warning?: string;
   infraSource: InfraSource;
   envSource: EnvSource;
+  connectionSource: ConnectionSource;
 }
 import type { ProjectReader } from "./local-reader";
 import { readProjectSnapshot, type ProjectInfo } from "./resolve";
 import { deriveDevCommand } from "./dev-command";
 import { detectInfra, type InfraSource } from "./infra";
 import { detectEnvRequirements, type EnvComposeFile, type EnvSource } from "./env-requirements";
+import { detectConnections, type ConnectionSource } from "./connections";
 import type { StackId } from "../core";
 
 const DOCKERFILE = "Dockerfile";
@@ -78,15 +80,21 @@ function portMappings(service: ComposeService): ScanPortMapping[] {
   return service.ports.flatMap((spec) => toPortMapping(spec) ?? []);
 }
 
+function portRange(value: string | null): number[] {
+  const range = value?.match(/^(\d{1,5})(?:-(\d{1,5}))?$/);
+  if (!range) return [];
+  const start = Number(range[1]);
+  const end = Number(range[2] ?? range[1]);
+  if (start < 1 || start > end || end > 65535) return [];
+  return Array.from({ length: end - start + 1 }, (_, offset) => start + offset);
+}
+
 function publishedHostPorts(ports: ScanPortMapping[]): number[] {
-  return ports.flatMap(({ host }) => {
-    const range = host?.match(/^(\d{1,5})(?:-(\d{1,5}))?$/);
-    if (!range) return [];
-    const start = Number(range[1]);
-    const end = Number(range[2] ?? range[1]);
-    if (start < 1 || start > end || end > 65535) return [];
-    return Array.from({ length: end - start + 1 }, (_, offset) => start + offset);
-  });
+  return ports.flatMap(({ host }) => portRange(host));
+}
+
+function containerPorts(ports: ScanPortMapping[]): number[] {
+  return ports.flatMap(({ container }) => portRange(container));
 }
 
 function containerPort(ports: ScanPortMapping[]): number | null {
@@ -165,7 +173,7 @@ async function withDevCommand(
   reader: ProjectReader,
   service: ServiceWithoutDevCommand,
   workspacePackageManager?: string,
-): Promise<Omit<ScannedService, "infraSource" | "envSource">> {
+): Promise<Pick<ScannedService, "service" | "warning">> {
   if (!service.stackId) {
     return {
       service: { ...service, devCommand: null },
@@ -215,6 +223,7 @@ async function appService(
     ...(await withDevCommand(reader, service, workspacePackageManager)),
     infraSource: { serviceId: id, directory: rootDirectory },
     envSource: { serviceId: id, serviceName: name, directory: rootDirectory, composeEnvFiles: [] },
+    connectionSource: { serviceId: id },
   };
 }
 
@@ -235,6 +244,8 @@ async function composeService(
   const stack = readable ? await detectStackIn(reader, context) : undefined;
   const dockerfile = posix.join(context ?? ".", service.dockerfile ?? DOCKERFILE);
   const id = `compose:${service.name}`;
+  const envFiles = composeEnvFiles(service, composeDirectory).readable;
+  const hostPorts = publishedHostPorts(portMappings(service));
   const scanned = await withDevCommand(reader, {
     id,
     name: service.name,
@@ -259,7 +270,7 @@ async function composeService(
       serviceId: id,
       serviceName: service.name,
       directory: readable ? context : composeDirectory,
-      composeEnvFiles: composeEnvFiles(service, composeDirectory).readable,
+      composeEnvFiles: envFiles,
     },
     infraSource: {
       serviceId: id,
@@ -268,7 +279,18 @@ async function composeService(
         name: service.name,
         image: service.image ?? null,
         environment: service.environment,
-        hostPorts: publishedHostPorts(portMappings(service)),
+        hostPorts,
+      },
+    },
+    connectionSource: {
+      serviceId: id,
+      compose: {
+        name: service.name,
+        dependsOn: service.dependsOn,
+        environment: service.environment,
+        hostPorts,
+        containerPorts: containerPorts(portMappings(service)),
+        envFiles: envFiles.map(({ path }) => path),
       },
     },
   };
@@ -364,6 +386,17 @@ export async function toScanResult(info: ProjectInfo, reader: ProjectReader): Pr
     reader,
     scanned.map(({ envSource }) => envSource),
   );
+  const services = scanned.map(({ service }) => service);
+  const infra = await detectInfra(
+    reader,
+    scanned.map(({ infraSource }) => infraSource),
+  );
+  const connections = await detectConnections(
+    reader,
+    services,
+    scanned.map(({ connectionSource }) => connectionSource),
+    infra,
+  );
   return {
     schemaVersion: SCHEMA_VERSION,
     project: {
@@ -372,21 +405,19 @@ export async function toScanResult(info: ProjectInfo, reader: ProjectReader): Pr
       gitBranch: info.repository.selected_branch ?? null,
       type: info.projectType,
     },
-    services: scanned.map(({ service }) => service),
+    services,
     composeFiles: info.composeFiles ?? [],
     composeServices: (info.services ?? []).map((service) =>
       toComposeService(service, composeDirectory),
     ),
     envRequirements: env.envRequirements,
-    infra: await detectInfra(
-      reader,
-      scanned.map(({ infraSource }) => infraSource),
-    ),
-    connections: [],
+    infra,
+    connections: connections.connections,
     warnings: [
       ...collectWarnings(info, composeDirectory),
       ...scanned.flatMap(({ warning }) => warning ?? []),
       ...env.warnings,
+      ...connections.warnings,
     ],
   };
 }

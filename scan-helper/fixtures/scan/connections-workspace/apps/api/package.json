@@ -1,0 +1,11 @@
+{
+  "name": "api",
+  "private": true,
+  "scripts": {
+    "start": "PORT=4000 node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "pg": "^8.13.0"
+  }
+}

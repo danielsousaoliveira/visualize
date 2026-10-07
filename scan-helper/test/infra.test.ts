@@ -30,6 +30,7 @@ describe("infra from the scan fixtures", () => {
   it("finds Postgres from a pg dependency without a compose file", async () => {
     expect(await infraOf(join(FIXTURES_DIR, "infra-node-pg"))).toEqual([
       {
+        id: "infra:postgres",
         kind: "postgres",
         usedBy: ["."],
         providedBy: null,
@@ -49,6 +50,7 @@ describe("infra from the scan fixtures", () => {
   it("links a pg dependency to the compose Postgres instead of adding a second entry", async () => {
     expect(await infraOf(join(FIXTURES_DIR, "infra-compose-pg"))).toEqual([
       {
+        id: "infra:postgres",
         kind: "postgres",
         usedBy: ["compose:api"],
         providedBy: "compose:db",
@@ -99,6 +101,7 @@ describe("env URL credentials stay out of the output", () => {
     const result = JSON.parse(output);
     expect(result.infra).toEqual([
       {
+        id: "infra:postgres",
         kind: "postgres",
         usedBy: ["."],
         providedBy: null,
@@ -284,6 +287,7 @@ describe("other ecosystems", () => {
     });
     expect(await infraOf(root)).toEqual([
       {
+        id: "infra:postgres",
         kind: "postgres",
         usedBy: [],
         providedBy: "compose:primary",
@@ -292,6 +296,7 @@ describe("other ecosystems", () => {
         port: null,
       },
       {
+        id: "infra:postgres-2",
         kind: "postgres",
         usedBy: [],
         providedBy: "compose:analytics",
@@ -300,6 +305,7 @@ describe("other ecosystems", () => {
         port: null,
       },
       {
+        id: "infra:postgres-3",
         kind: "postgres",
         usedBy: ["compose:api"],
         providedBy: null,
