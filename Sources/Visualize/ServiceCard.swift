@@ -21,15 +21,21 @@ struct ServiceCard: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text(service.name).font(.headline)
                     Spacer()
-                    if let run = appState.serviceRuns[appState.runKey(project: project, service: service)], run.active {
-                        Button("Stop", systemImage: "stop.fill") {
-                            Task { await appState.stop(project: project, service: service) }
-                        }.disabled(run.stopping || run.pid == nil)
+                    if let run = appState.serviceRuns[appState.runKey(project: project, service: service)], run.active || run.docker != nil {
+                        if run.active {
+                            Button("Stop", systemImage: "stop.fill") {
+                                Task { await appState.stop(project: project, service: service) }
+                            }.disabled(run.stopping || run.busy || (run.pid == nil && run.docker == nil))
+                        }
                         Button("Restart", systemImage: "arrow.clockwise") {
                             Task { await appState.restart(project: project, service: service) }
-                        }.disabled(run.stopping || run.pid == nil)
+                        }.disabled(run.stopping || run.busy || (run.pid == nil && run.docker == nil) || (run.docker != nil && appState.dockerReason(project: project, service: service) != nil))
                     }
                     Button("Play", systemImage: "play.fill") {
+                        if appState.mode(project: project, service: service) != .local {
+                            Task { await appState.startDocker(project: project, service: service) }
+                            return
+                        }
                         guard let recipe = appState.recipe(project: project, service: service) else { return }
                         if appState.approved(recipe, project: project) {
                             Task { await appState.start(project: project, service: service, recipe: recipe) }
@@ -39,7 +45,7 @@ struct ServiceCard: View {
                             showConfirmation = true
                         }
                     }
-                    .disabled(!service.runModes.local.available || service.devCommand == nil || appState.serviceRuns[appState.runKey(project: project, service: service)]?.active == true)
+                    .disabled(ServiceMode.available(for: service).isEmpty || appState.dockerReason(project: project, service: service) != nil || appState.serviceRuns[appState.runKey(project: project, service: service)]?.active == true)
                     Text(service.rootDirectory).font(.callout.monospaced()).foregroundStyle(.secondary)
                 }
                 ViewThatFits(in: .horizontal) {
@@ -50,11 +56,17 @@ struct ServiceCard: View {
                 HStack {
                     Text(run?.status ?? "Stopped")
                     if let port = service.port {
-                        Label(run?.portReady == true ? "Port \(port) listening" : "Port \(port) waiting", systemImage: run?.portReady == true ? "circle.fill" : "circle")
+                        Label(run?.docker != nil && run?.active == true ? "Port \(port) published" : run?.portReady == true ? "Port \(port) listening" : "Port \(port) waiting", systemImage: run?.portReady == true ? "circle.fill" : "circle")
                             .foregroundStyle(run?.portReady == true ? .green : .secondary)
                     }
                 }.font(.callout)
-                if let run, let current = appState.recipe(project: project, service: service),
+                if let reason = appState.dockerReason(project: project, service: service) {
+                    Text(reason).font(.callout).foregroundStyle(.secondary)
+                }
+                if let run, run.status.lowercased().contains("failed") {
+                    Text(run.lastOutputLines).font(.callout.monospaced()).textSelection(.enabled)
+                }
+                if let run, run.docker == nil, let current = appState.recipe(project: project, service: service),
                    current.approvalKey != run.recipe.approvalKey {
                     Text("The dev command has changed. Restart uses the command recorded at launch.")
                         .font(.callout).foregroundStyle(.secondary)
@@ -62,7 +74,7 @@ struct ServiceCard: View {
                         pendingRecipe = current
                         confirmingRestart = true
                         showConfirmation = true
-                    }.disabled(run.stopping || run.pid == nil)
+                    }.disabled(run.stopping || run.busy || (run.pid == nil && run.docker == nil))
                 }
                 if let command = service.devCommand {
                     ScrollView(.horizontal) {
@@ -76,11 +88,16 @@ struct ServiceCard: View {
                 } else {
                     Text("No dev command detected").font(.callout).foregroundStyle(.secondary)
                 }
-                HStack(spacing: 8) {
-                    RunModeChip(title: "Local", available: service.runModes.local.available, reason: service.runModes.local.reason)
-                    RunModeChip(title: "Compose", available: service.runModes.compose.available && appState.dockerState.unavailableReason(compose: true) == nil, reason: appState.dockerState.unavailableReason(compose: true) ?? service.runModes.compose.reason)
-                    RunModeChip(title: "Dockerfile", available: service.runModes.dockerfile.available && appState.dockerState.unavailableReason() == nil, reason: appState.dockerState.unavailableReason() ?? service.runModes.dockerfile.reason)
+                Picker("Run mode", selection: Binding(
+                    get: { appState.mode(project: project, service: service) },
+                    set: { appState.setMode($0, project: project, service: service) }
+                )) {
+                    ForEach(ServiceMode.available(for: service)) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
                 }
+                .pickerStyle(.segmented)
+                .disabled(run?.active == true || run?.busy == true || run?.stopping == true)
                 if environment == nil {
                     Text("Env status unavailable — rescan to check").font(.callout).foregroundStyle(.secondary)
                 } else if missing.isEmpty {

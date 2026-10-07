@@ -4,6 +4,10 @@ import Observation
 @MainActor
 @Observable
 final class ServiceRun {
+    var docker: DockerRun?
+    var busy = false
+    var monitoringDocker = false
+    var lastOutputLines: String { String(decoding: output, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: false).suffix(20).joined(separator: "\n") }
     let recipe: RunRecipe
     var status = "Starting"
     var pid: Int32?

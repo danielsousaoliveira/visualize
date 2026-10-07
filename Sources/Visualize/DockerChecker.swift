@@ -42,7 +42,8 @@ struct DockerChecker: Sendable {
         else { provider = "Other" }
         let compose = run(path, arguments: ["--host", endpoint, "compose", "version", "--short"])
             .map { String(decoding: $0, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) }
-        return .running(provider: provider, composeAvailable: compose?.hasPrefix("2.") == true || compose?.hasPrefix("v2.") == true)
+        let major = compose.flatMap { Int($0.trimmingCharacters(in: CharacterSet(charactersIn: "v")).split(separator: ".").first.map(String.init) ?? "") }
+        return .running(provider: provider, composeAvailable: major.map { $0 >= 2 } == true)
     }
 
     func run(_ path: String, arguments: [String]) -> Data? {

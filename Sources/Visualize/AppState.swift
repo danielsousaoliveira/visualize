@@ -11,6 +11,8 @@ final class AppState {
     var portLookupError: String?
     private var resolvingPorts: Set<String> = []
     private var startingServices: Set<String> = []
+    private var dockerProjects: Set<UUID> = []
+    let dockerOwnership = UUID().uuidString
     private var ownedGroups: Set<Int32> = []
     private var loginEnvironment = Task { try await LocalProcess.environment() }
 
@@ -239,7 +241,13 @@ final class AppState {
 
     func stop(project: Project, service: ScanService) async {
         guard let run = serviceRuns[runKey(project: project, service: service)] else { return }
-        await stop(run)
+        if run.docker != nil {
+            guard !dockerProjects.contains(project.id) else { return }
+            dockerProjects.insert(project.id)
+            defer { dockerProjects.remove(project.id) }
+            await stopDocker(run)
+        }
+        else { await stop(run) }
     }
 
     @discardableResult
@@ -275,13 +283,17 @@ final class AppState {
 
     func restart(project: Project, service: ScanService, recipe: RunRecipe? = nil) async {
         guard let run = serviceRuns[runKey(project: project, service: service)], !run.stopping else { return }
+        if run.docker != nil {
+            await restartDocker(project: project, service: service, run: run)
+            return
+        }
         guard await stop(run) else { return }
         await start(project: project, service: service, recipe: recipe ?? run.recipe, storedEnvironment: run.launchEnvironment)
     }
 
     func stopForQuit() async {
         await withTaskGroup(of: Void.self) { group in
-            for run in serviceRuns.values where run.active {
+            for run in serviceRuns.values where run.active && run.docker == nil {
                 group.addTask { await self.stop(run) }
             }
         }
@@ -410,6 +422,213 @@ final class AppState {
             try store.save(projects)
         } catch {
             libraryError = "The project library could not be saved: \(error.localizedDescription)"
+        }
+    }
+}
+
+extension AppState {
+    func mode(project: Project, service: ScanService) -> ServiceMode {
+        if let run = serviceRuns[runKey(project: project, service: service)], run.active, let docker = run.docker { return docker.mode }
+        let available = ServiceMode.available(for: service)
+        if let value = UserDefaults.standard.string(forKey: "serviceMode.\(runKey(project: project, service: service))"),
+           let mode = ServiceMode(rawValue: value), available.contains(mode) { return mode }
+        return available.contains(.local) ? .local : available.first ?? .local
+    }
+
+    func setMode(_ mode: ServiceMode, project: Project, service: ScanService) {
+        UserDefaults.standard.set(mode.rawValue, forKey: "serviceMode.\(runKey(project: project, service: service))")
+    }
+
+    func dockerReason(project: Project, service: ScanService) -> String? {
+        let selected = mode(project: project, service: service)
+        return selected == .local ? nil : dockerState.unavailableReason(compose: selected == .compose)
+    }
+
+    func startDocker(project: Project, service: ScanService) async {
+        let key = runKey(project: project, service: service)
+        let selected = mode(project: project, service: service)
+        guard selected != .local, dockerReason(project: project, service: service) == nil,
+              serviceRuns[key]?.active != true, !dockerProjects.contains(project.id) else { return }
+        dockerProjects.insert(project.id)
+        defer { dockerProjects.remove(project.id) }
+        let run = ServiceRun(recipe: RunRecipe(argv: [], workingDirectory: project.folderPath, addedEnvironmentKeys: [], startedAt: Date()))
+        run.busy = true
+        serviceRuns[key] = run
+        defer { run.busy = false }
+        do {
+            let override = dockerOverridePath
+            let command = try await Task.detached { try DockerCommand.connect(overridePath: override) }.value
+            let slug = DockerRun.slug(project.name)
+            if selected == .compose {
+                guard let file = service.runModes.compose.composeFile, let name = service.runModes.compose.serviceName else { throw dockerError("Compose metadata missing; rescan") }
+                let base = ["compose", "-p", slug, "-f", project.folderURL.appending(path: file).path]
+                let existing = try await command.run(base + ["ps", "-a", "-q"], directory: project.folderPath)
+                let ids = String(decoding: existing, as: UTF8.self).split(whereSeparator: \.isWhitespace).map(String.init)
+                try await verifyDockerOwnership(ids, command: command, directory: project.folderPath, projectID: project.id)
+                let services = project.lastResult?.services ?? [service]
+                let entries = services.compactMap { item -> (String, [String: Any])? in
+                    guard item.runModes.compose.composeFile == file, let name = item.runModes.compose.serviceName else { return nil }
+                    return (name, ["labels": ["visualize.project": slug, "visualize.service": item.id, "visualize.owner": dockerOwnership, "visualize.library": project.id.uuidString]])
+                }
+                let overrideURL = FileManager.default.temporaryDirectory.appending(path: "visualize-compose-\(UUID().uuidString).json")
+                try JSONSerialization.data(withJSONObject: ["services": Dictionary(entries, uniquingKeysWith: { first, _ in first })]).write(to: overrideURL, options: .atomic)
+                defer { try? FileManager.default.removeItem(at: overrideURL) }
+                run.docker = DockerRun(command: command, mode: selected, projectID: project.id, projectSlug: slug, serviceName: name, composeArguments: base, containerIDs: [])
+                _ = try await command.run(base + ["-f", overrideURL.path, "up", "-d", name], directory: project.folderPath) { run.append($0) }
+                try await refreshCompose(project: project, source: run)
+            } else {
+                guard let path = service.runModes.dockerfile.dockerfilePath,
+                      let host = service.port, let container = service.runModes.dockerfile.containerPort,
+                      (1...65535).contains(host), (1...65535).contains(container) else { throw dockerError("Dockerfile requires detected host and container ports; rescan") }
+                let serviceSlug = DockerRun.slug(service.id)
+                let image = "visualize/\(slug)-\(serviceSlug):dev"
+                let name = "visualize-\(slug)-\(serviceSlug)"
+                _ = try await command.run(["build", "-t", image, "-f", project.folderURL.appending(path: path).path, project.folderURL.appending(path: service.rootDirectory).path], directory: project.folderPath) { run.append($0) }
+                let data = try await command.run(["run", "-d", "--name", name, "--label", "visualize.project=\(slug)", "--label", "visualize.service=\(service.id)", "--label", "visualize.owner=\(dockerOwnership)", "--label", "visualize.library=\(project.id.uuidString)", "-p", "\(host):\(container)", image], directory: project.folderPath) { run.append($0) }
+                let id = String(decoding: data, as: UTF8.self).split(whereSeparator: \.isWhitespace).last.map(String.init) ?? ""
+                guard !id.isEmpty else { throw dockerError("Docker did not return a container ID") }
+                run.docker = DockerRun(command: command, mode: selected, projectID: project.id, projectSlug: slug, serviceName: name, composeArguments: [], containerIDs: [id])
+                markDockerRunning(run, name: service.name)
+            }
+            if run.docker?.mode == .compose {
+                for candidate in serviceRuns.values where candidate.docker?.projectID == project.id && candidate.active {
+                    monitorDocker(project: project, run: candidate)
+                }
+            } else { monitorDocker(project: project, run: run) }
+        } catch {
+            run.active = false
+            run.status = "Failed: \(error.localizedDescription)"
+            run.portReady = false
+        }
+    }
+
+    private func dockerError(_ message: String) -> NSError { NSError(domain: message, code: 1) }
+
+    private func verifyComposeService(_ docker: DockerRun, directory: String) async throws {
+        let data = try await docker.command.run(docker.composeArguments + ["ps", "-a", "-q", docker.serviceName], directory: directory)
+        let ids = String(decoding: data, as: UTF8.self).split(whereSeparator: \.isWhitespace).map(String.init)
+        guard !ids.isEmpty else { throw dockerError("Compose container no longer exists") }
+        try await verifyDockerOwnership(ids, command: docker.command, directory: directory, projectID: docker.projectID)
+    }
+
+    private func verifyDockerOwnership(_ ids: [String], command: DockerCommand, directory: String, projectID: UUID) async throws {
+        for id in ids {
+            let data = try await command.run(["inspect", "--format", "{{index .Config.Labels \"visualize.owner\"}} {{index .Config.Labels \"visualize.library\"}}", id], directory: directory)
+            guard String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) == "\(dockerOwnership) \(projectID.uuidString)" else {
+                throw dockerError("Container not started by this visualize session; Docker action refused")
+            }
+        }
+    }
+
+    private func markDockerRunning(_ run: ServiceRun, name: String) {
+        run.active = true
+        run.status = "Running in Docker"
+        run.portReady = true
+        if run.runningID == nil {
+            let id = UUID()
+            run.runningID = id
+            runningServices.append(RunningService(id: id, name: name))
+        }
+    }
+
+    private func refreshCompose(project: Project, source: ServiceRun) async throws {
+        guard let docker = source.docker else { return }
+        let data = try await docker.command.run(["ps", "--no-trunc", "--filter", "label=com.docker.compose.project=\(docker.projectSlug)", "--filter", "label=visualize.owner=\(dockerOwnership)", "--filter", "label=visualize.library=\(project.id.uuidString)", "--format", "{{.ID}}\t{{.Label \"com.docker.compose.service\"}}"], directory: project.folderPath)
+        if dockerProjects.contains(project.id), !source.busy { return }
+        let rows = String(decoding: data, as: UTF8.self).split(separator: "\n").map { $0.split(separator: "\t").map(String.init) }
+        for service in project.lastResult?.services ?? [] where service.runModes.compose.composeFile.map({ docker.composeArguments.contains(project.folderURL.appending(path: $0).path) }) == true {
+            guard let name = service.runModes.compose.serviceName else { continue }
+            let ids = rows.filter { $0.count == 2 && $0[1] == name }.map { $0[0] }
+            let key = runKey(project: project, service: service)
+            if ids.isEmpty {
+                if let run = serviceRuns[key], run.docker?.mode == .compose, !run.busy, !run.stopping {
+                    run.active = false
+                    run.portReady = false
+                    run.status = "Stopped"
+                    if let id = run.runningID { runningServices.removeAll { $0.id == id }; run.runningID = nil }
+                }
+                continue
+            }
+            if serviceRuns[key]?.active == true && serviceRuns[key]?.docker == nil { continue }
+            let run = serviceRuns[key] ?? ServiceRun(recipe: source.recipe)
+            run.docker = DockerRun(command: docker.command, mode: .compose, projectID: project.id, projectSlug: docker.projectSlug, serviceName: name, composeArguments: docker.composeArguments, containerIDs: ids)
+            serviceRuns[key] = run
+            markDockerRunning(run, name: service.name)
+        }
+        if source.busy, !rows.contains(where: { $0.count == 2 && $0[1] == docker.serviceName }) { throw dockerError("Compose service did not stay running") }
+    }
+
+    @discardableResult
+    func stopDocker(_ run: ServiceRun) async -> Bool {
+        guard let docker = run.docker, !run.busy, !run.stopping else { return false }
+        if !run.active && docker.mode == .dockerfile { return true }
+        run.stopping = true
+        defer { run.stopping = false }
+        do {
+            try await verifyDockerOwnership(docker.containerIDs, command: docker.command, directory: run.recipe.workingDirectory, projectID: docker.projectID)
+            if docker.mode == .compose {
+                try await verifyComposeService(docker, directory: run.recipe.workingDirectory)
+                _ = try await docker.command.run(docker.composeArguments + ["stop", docker.serviceName], directory: run.recipe.workingDirectory) { run.append($0) }
+            } else {
+                for id in docker.containerIDs {
+                    _ = try await docker.command.run(["stop", id], directory: run.recipe.workingDirectory) { run.append($0) }
+                    _ = try await docker.command.run(["rm", id], directory: run.recipe.workingDirectory) { run.append($0) }
+                }
+            }
+            run.active = false
+            run.portReady = false
+            run.status = "Stopped"
+            if let id = run.runningID { runningServices.removeAll { $0.id == id }; run.runningID = nil }
+            return true
+        } catch {
+            run.status = "Stop failed: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    func restartDocker(project: Project, service: ScanService, run: ServiceRun) async {
+        guard let docker = run.docker, !run.busy, !run.stopping, !dockerProjects.contains(project.id),
+              dockerState.unavailableReason(compose: docker.mode == .compose) == nil else { return }
+        if docker.mode == .dockerfile {
+            guard await stopDocker(run) else { return }
+            setMode(.dockerfile, project: project, service: service)
+            await startDocker(project: project, service: service)
+            return
+        }
+        dockerProjects.insert(project.id)
+        run.busy = true
+        defer { run.busy = false; dockerProjects.remove(project.id) }
+        do {
+            try await verifyDockerOwnership(docker.containerIDs, command: docker.command, directory: project.folderPath, projectID: docker.projectID)
+            try await verifyComposeService(docker, directory: project.folderPath)
+            _ = try await docker.command.run(docker.composeArguments + ["restart", docker.serviceName], directory: project.folderPath) { run.append($0) }
+            try await refreshCompose(project: project, source: run)
+            markDockerRunning(run, name: service.name)
+            monitorDocker(project: project, run: run)
+        } catch { run.status = "Failed: \(error.localizedDescription)" }
+    }
+
+    private func monitorDocker(project: Project, run: ServiceRun) {
+        guard !run.monitoringDocker else { return }
+        run.monitoringDocker = true
+        Task {
+            defer { run.monitoringDocker = false }
+            while run.active {
+                try? await Task.sleep(for: .seconds(2))
+                guard run.active, !run.busy, !run.stopping, !dockerProjects.contains(project.id), let docker = run.docker else { continue }
+                do {
+                    if docker.mode == .compose { try await refreshCompose(project: project, source: run) }
+                    else {
+                        let data = try await docker.command.run(["ps", "--no-trunc", "--filter", "id=\(docker.containerIDs[0])", "--format", "{{.ID}}"], directory: project.folderPath)
+                        if data.isEmpty {
+                            run.active = false
+                            run.portReady = false
+                            run.status = "Stopped"
+                            if let id = run.runningID { runningServices.removeAll { $0.id == id }; run.runningID = nil }
+                        }
+                    }
+                } catch { run.status = "Docker status unavailable: \(error.localizedDescription)" }
+            }
         }
     }
 }
