@@ -1,0 +1,9 @@
+services:
+  api:
+    build: ./api
+    ports:
+      - "8080:8080"
+    env_file:
+      - ./api/app.env
+      - path: ./api/optional.env
+        required: false

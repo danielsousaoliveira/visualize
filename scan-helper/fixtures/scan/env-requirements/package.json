@@ -1,0 +1,7 @@
+{
+  "name": "env-requirements",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  }
+}

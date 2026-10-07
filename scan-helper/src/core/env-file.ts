@@ -29,13 +29,56 @@ function closingQuote(content: string, start: number, quote: string): number {
   return -1;
 }
 
+export interface EnvFileKeys {
+  keys: Array<{ key: string; hasValue: boolean }>;
+  malformedLines: number[];
+}
+
+interface EnvFileRead {
+  entries: EnvFileEntry[];
+  bareKeys: string[];
+  malformedOffsets: number[];
+  unterminated: Set<EnvFileEntry>;
+}
+
+const BARE_KEY = /^[^\S\r\n]*(?:export[^\S\r\n]+)?([A-Za-z_][A-Za-z0-9_]*)\s*$/;
+const BLANK_OR_COMMENT = /^\s*(?:#|$)/;
+
+function lineNumberAt(content: string, offset: number): number {
+  let line = 1;
+  for (let i = content.indexOf("\n"); i >= 0 && i < offset; i = content.indexOf("\n", i + 1)) line++;
+  return line;
+}
+
 /** Read Compose-compatible .env syntax without resolving variable references.
  * Keeping literal values separate from expressions lets editor imports and
  * Compose interpolation share quoting rules without expanding saved secrets. */
 export function parseEnvFile(content: string): EnvFileEntry[] {
+  return readEnvFile(content).entries;
+}
+
+export function envFileKeys(content: string): EnvFileKeys {
+  const { entries, bareKeys, malformedOffsets, unterminated } = readEnvFile(content);
+  return {
+    keys: [
+      ...entries.map((entry) => ({
+        key: entry.key,
+        hasValue: entry.value !== "" && !unterminated.has(entry),
+      })),
+      ...bareKeys.map((key) => ({ key, hasValue: false })),
+    ],
+    malformedLines: malformedOffsets.map((offset) => lineNumberAt(content, offset)),
+  };
+}
+
+function readEnvFile(content: string): EnvFileRead {
   const entries: EnvFileEntry[] = [];
+  const bareKeys: string[] = [];
+  const malformedOffsets: number[] = [];
+  const unterminated = new Set<EnvFileEntry>();
   let cursor = content.startsWith("\uFEFF") ? 1 : 0;
   while (cursor < content.length) {
+    const lineStart = cursor;
     const newline = content.indexOf("\n", cursor);
     const lineEnd = newline < 0 ? content.length : newline;
     const line = content.slice(cursor, lineEnd);
@@ -44,7 +87,12 @@ export function parseEnvFile(content: string): EnvFileEntry[] {
     );
     const valueStart = cursor + (assignment?.[0].length ?? 0);
     cursor = lineEnd + 1;
-    if (!assignment) continue;
+    if (!assignment) {
+      const bare = line.match(BARE_KEY);
+      if (bare) bareKeys.push(bare[1]!);
+      else if (!BLANK_OR_COMMENT.test(line)) malformedOffsets.push(lineStart);
+      continue;
+    }
 
     const key = assignment[1]!;
     const quote = content[valueStart];
@@ -55,14 +103,20 @@ export function parseEnvFile(content: string): EnvFileEntry[] {
         const nextLine = content.indexOf("\n", end + 1);
         cursor = nextLine < 0 ? content.length : nextLine + 1;
       }
+      let entry: EnvFileEntry;
       if (quote === "'") {
-        entries.push({ key, value: quoted.replace(/\\'/g, "'") });
+        entry = { key, value: quoted.replace(/\\'/g, "'") };
       } else {
         const decode = (protectDollars: boolean) =>
           quoted.replace(/\\([abfnrtv"\\$])/g, (_match, char: string) =>
             char === "$" && protectDollars ? "$$" : DOUBLE_QUOTE_ESCAPES[char]!,
           );
-        entries.push({ key, value: decode(false), interpolation: decode(true) });
+        entry = { key, value: decode(false), interpolation: decode(true) };
+      }
+      entries.push(entry);
+      if (end < 0) {
+        malformedOffsets.push(lineStart);
+        unterminated.add(entry);
       }
     } else {
       const value = content
@@ -72,7 +126,7 @@ export function parseEnvFile(content: string): EnvFileEntry[] {
       entries.push({ key, value, interpolation: value });
     }
   }
-  return entries;
+  return { entries, bareKeys, malformedOffsets, unterminated };
 }
 
 const ENCODE_ESCAPES: Readonly<Record<string, string>> = Object.fromEntries(

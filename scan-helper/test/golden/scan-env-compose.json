@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "env-compose",
+    "rootPath": "/fixtures/scan/env-compose",
+    "gitBranch": null,
+    "type": "services"
+  },
+  "services": [
+    {
+      "id": "compose:api",
+      "name": "api",
+      "kind": "compose",
+      "rootDirectory": "api",
+      "stackId": "docker",
+      "category": "docker",
+      "packageManager": "npm",
+      "installCommand": null,
+      "buildCommand": null,
+      "startCommand": "npm run start",
+      "port": 8080,
+      "hasDockerfile": true,
+      "devCommand": {
+        "argv": [
+          "npm",
+          "run",
+          "start"
+        ],
+        "workingDirectory": "api",
+        "source": "fallback-start"
+      }
+    }
+  ],
+  "composeFiles": [
+    "docker-compose.yml"
+  ],
+  "composeServices": [
+    {
+      "name": "api",
+      "image": null,
+      "buildContext": "api",
+      "ports": [
+        {
+          "host": "8080",
+          "container": "8080"
+        }
+      ],
+      "dependsOn": [],
+      "environment": []
+    }
+  ],
+  "envRequirements": [
+    {
+      "serviceId": "compose:api",
+      "variables": [
+        {
+          "name": "X",
+          "status": "set",
+          "declaredIn": [
+            "api/.env.example",
+            "api/app.env"
+          ]
+        },
+        {
+          "name": "Y",
+          "status": "missing",
+          "declaredIn": [
+            "api/.env.example"
+          ]
+        }
+      ]
+    }
+  ],
+  "infra": [],
+  "connections": [],
+  "warnings": []
+}

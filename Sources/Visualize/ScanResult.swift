@@ -6,6 +6,7 @@ struct ScanResult: Codable, Hashable {
     var services: [ScanService]
     var composeFiles: [String]
     var composeServices: [ScanComposeService]
+    var envRequirements: [ScanEnvRequirement]
     var infra: [ScanInfra]
     var warnings: [String]
 
@@ -30,6 +31,7 @@ extension ScanResult {
         services = try container.decode([ScanService].self, forKey: .services)
         composeFiles = try container.decode([String].self, forKey: .composeFiles)
         composeServices = try container.decode([ScanComposeService].self, forKey: .composeServices)
+        envRequirements = try container.decodeIfPresent([ScanEnvRequirement].self, forKey: .envRequirements) ?? []
         infra = try container.decodeIfPresent([ScanInfra].self, forKey: .infra) ?? []
         warnings = try container.decode([String].self, forKey: .warnings)
     }

@@ -56,7 +56,40 @@
   ],
   "composeFiles": [],
   "composeServices": [],
-  "envRequirements": [],
+  "envRequirements": [
+    {
+      "serviceId": "apps/web",
+      "variables": [
+        {
+          "name": "NEXT_PUBLIC_API_URL",
+          "status": "missing",
+          "declaredIn": [
+            "apps/web/.env.example"
+          ]
+        }
+      ]
+    },
+    {
+      "serviceId": "apps/api",
+      "variables": [
+        {
+          "name": "API_KEY",
+          "status": "set",
+          "declaredIn": [
+            "apps/api/.env.example",
+            "apps/api/.env"
+          ]
+        },
+        {
+          "name": "DATABASE_URL",
+          "status": "missing",
+          "declaredIn": [
+            "apps/api/.env.example"
+          ]
+        }
+      ]
+    }
+  ],
   "infra": [],
   "connections": [],
   "warnings": []

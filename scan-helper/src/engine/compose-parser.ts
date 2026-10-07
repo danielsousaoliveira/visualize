@@ -42,6 +42,7 @@ export interface ComposeService {
   ports: string[];
   dependsOn: string[];
   environment: Record<string, string>;
+  envFiles?: ComposeEnvFile[];
   /**
    * Original Compose expressions, kept only until persistence converts those
    * keys back to their raw form. Never returned by service read APIs.
@@ -107,6 +108,11 @@ export interface ComposeUnsupportedField {
    * the extra, which is how `advanced` has always degraded.
    */
   blocking?: boolean;
+}
+
+export interface ComposeEnvFile {
+  path: string;
+  required: boolean;
 }
 
 /** A mandatory compose variable with no value yet. */
@@ -186,6 +192,7 @@ export function parseComposeFile(
     const svc = def as Record<string, unknown>;
     const build = parseBuild(svc.build, interpolationEnv);
     const environment = parseEnvironment(svc.environment, interpolationEnv);
+    const envFiles = parseEnvFiles(svc.env_file);
     const rawImage = typeof svc.image === "string" ? svc.image : undefined;
     const image =
       rawImage === undefined ? undefined : resolveComposeInterpolation(rawImage, interpolationEnv);
@@ -233,6 +240,7 @@ export function parseComposeFile(
       ports: parsePorts(svc.ports, interpolationEnv),
       dependsOn: parseDependsOn(svc.depends_on),
       environment: environment.values,
+      ...(envFiles.length > 0 && { envFiles }),
       ...(Object.keys(environment.templates).length > 0 && {
         environmentTemplates: environment.templates,
       }),
@@ -421,6 +429,18 @@ function parseDependsOn(deps: unknown): string[] {
   if (Array.isArray(deps)) return deps.filter((d): d is string => typeof d === "string");
   if (deps && typeof deps === "object") return Object.keys(deps);
   return [];
+}
+
+function parseEnvFiles(value: unknown): ComposeEnvFile[] {
+  const items = Array.isArray(value) ? value : value === undefined || value === null ? [] : [value];
+  return items.flatMap((item): ComposeEnvFile[] => {
+    if (typeof item === "string") return [{ path: item, required: true }];
+    if (item && typeof item === "object") {
+      const { path, required } = item as Record<string, unknown>;
+      if (typeof path === "string") return [{ path, required: required !== false }];
+    }
+    return [];
+  });
 }
 
 function parseEnvironment(

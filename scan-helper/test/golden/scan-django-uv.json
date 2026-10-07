@@ -36,7 +36,12 @@
   ],
   "composeFiles": [],
   "composeServices": [],
-  "envRequirements": [],
+  "envRequirements": [
+    {
+      "serviceId": ".",
+      "variables": []
+    }
+  ],
   "infra": [
     {
       "kind": "sqlite",

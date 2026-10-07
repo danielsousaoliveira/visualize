@@ -79,7 +79,16 @@
       "environment": []
     }
   ],
-  "envRequirements": [],
+  "envRequirements": [
+    {
+      "serviceId": "compose:api",
+      "variables": []
+    },
+    {
+      "serviceId": "compose:db",
+      "variables": []
+    }
+  ],
   "infra": [
     {
       "kind": "postgres",
