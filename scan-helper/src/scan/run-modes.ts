@@ -35,7 +35,7 @@ export async function detectRunModes(
       : candidate.build !== undefined &&
         posix.normalize(posix.join(composeDirectory, candidate.build)) === service.rootDirectory,
   );
-  const dockerfilePath = posix.join(service.rootDirectory, "Dockerfile");
+  const dockerfilePath = posix.join(service.rootDirectory, compose?.dockerfile ?? "Dockerfile");
   const context = compose?.build;
   const localContext = context !== undefined &&
     !posix.isAbsolute(context) && !context.includes("://") &&

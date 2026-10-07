@@ -59,7 +59,7 @@ describe("service run modes", () => {
     expect(result.services[0]!.runModes.dockerfile.containerPort).toBe(result.services[0]!.port);
   });
 
-  it("does not treat a custom compose Dockerfile as a root Dockerfile", async () => {
+  it("reports the custom compose Dockerfile and its exposed port", async () => {
     const result = await scanFolder(folder("custom", {
       "compose.yaml": "services:\n  api:\n    build:\n      context: ./api\n      dockerfile: Dockerfile.dev\n",
       "api/package.json": node,
@@ -67,6 +67,34 @@ describe("service run modes", () => {
     }));
     expect(result.services[0]!.hasDockerfile).toBe(true);
     expect(result.services[0]!.runModes.compose.available).toBe(true);
+    expect(result.services[0]!.runModes.dockerfile).toEqual({
+      available: true,
+      reason: null,
+      dockerfilePath: "api/Dockerfile.dev",
+      containerPort: 9000,
+    });
+  });
+
+  it("uses the custom Dockerfile for an app matched to a compose build", async () => {
+    const result = await scanFolder(folder("custom-app", {
+      "package.json": '{"name":"api","scripts":{"dev":"node index.js"},"dependencies":{"express":"^4"}}',
+      "compose.yaml": "services:\n  api:\n    build:\n      context: .\n      dockerfile: docker/Dockerfile.dev\n",
+      "Dockerfile": "FROM node:22\nEXPOSE 8080\n",
+      "docker/Dockerfile.dev": "FROM node:22\nEXPOSE 9000\n",
+    }));
+    expect(result.services[0]!.id).toBe(".");
+    expect(result.services[0]!.runModes.dockerfile.dockerfilePath).toBe("docker/Dockerfile.dev");
+    expect(result.services[0]!.runModes.dockerfile.containerPort).toBe(9000);
+  });
+
+  it("does not read a custom Dockerfile symlink outside the project", async () => {
+    const outside = folder("custom-outside", { "Dockerfile": "FROM node:22\nEXPOSE 9876\n" });
+    const root = folder("custom-linked", {
+      "compose.yaml": "services:\n  api:\n    build:\n      context: ./api\n      dockerfile: Dockerfile.dev\n",
+      "api/package.json": node,
+    });
+    symlinkSync(join(outside, "Dockerfile"), join(root, "api/Dockerfile.dev"));
+    const result = await scanFolder(root);
     expect(result.services[0]!.runModes.dockerfile.available).toBe(false);
   });
 
