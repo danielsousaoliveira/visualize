@@ -6,6 +6,100 @@ import Observation
 final class AppState {
     private(set) var projects: [Project] = []
     var runningServices: [RunningService] = []
+    private(set) var runHistory: [String: [RunRecipe]] = [:]
+    private(set) var serviceRuns: [String: ServiceRun] = [:]
+    private var ownedGroups: Set<Int32> = []
+    private let loginEnvironment = Task { try await LocalProcess.environment() }
+
+    func runKey(project: Project, service: ScanService) -> String {
+        "\(project.id.uuidString):\(service.id)"
+    }
+
+    func recipe(project: Project, service: ScanService) -> RunRecipe? {
+        guard let command = service.devCommand, !command.argv.isEmpty else { return nil }
+        return RunRecipe(argv: command.argv, workingDirectory: project.folderURL.appending(path: command.workingDirectory).standardizedFileURL.path, addedEnvironmentKeys: [], startedAt: Date())
+    }
+
+    func approved(_ recipe: RunRecipe, project: Project) -> Bool {
+        (UserDefaults.standard.stringArray(forKey: "approvedCommands.\(project.id)") ?? []).contains(recipe.approvalKey)
+    }
+
+    func start(project: Project, service: ScanService, recipe: RunRecipe) async {
+        let key = runKey(project: project, service: service)
+        guard serviceRuns[key]?.active != true else { return }
+        let run = ServiceRun(recipe: recipe)
+        serviceRuns[key] = run
+        do {
+            let environment = try await loginEnvironment.value
+            let recorded = RunRecipe(argv: recipe.argv, workingDirectory: recipe.workingDirectory, addedEnvironmentKeys: environment.keys.filter { ProcessInfo.processInfo.environment[$0] == nil }.sorted(), startedAt: Date())
+            let actual = ServiceRun(recipe: recorded)
+            serviceRuns[key] = actual
+            let (pid, output) = try LocalProcess.start(recorded, environment: environment)
+            runHistory[key, default: []].append(recorded)
+            ownedGroups.insert(pid)
+            actual.pid = pid
+            actual.status = "Running (pid \(pid))"
+            let runningID = UUID()
+            runningServices.append(RunningService(id: runningID, name: service.name))
+            let approvalStore = "approvedCommands.\(project.id)"
+            var approvals = UserDefaults.standard.stringArray(forKey: approvalStore) ?? []
+            if !approvals.contains(recipe.approvalKey) { approvals.append(recipe.approvalKey) }
+            UserDefaults.standard.set(approvals, forKey: approvalStore)
+            Task.detached {
+                while true {
+                    let data = output.availableData
+                    if !data.isEmpty { await actual.append(data) }
+                    if data.isEmpty && kill(-pid, 0) != 0 { break }
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+                try? output.close()
+                await self.releaseGroup(pid)
+            }
+            Task.detached {
+                var status: Int32 = 0
+                while waitpid(pid, &status, 0) == -1 && errno == EINTR {}
+                let code = status & 0x7f == 0 ? (status >> 8) & 0xff : 128 + (status & 0x7f)
+                await self.finished(actual, code: code, runningID: runningID)
+            }
+            if let port = service.port {
+                Task {
+                    while actual.active {
+                        actual.portReady = await Task.detached { LocalProcess.listening(port: port) }.value
+                        try? await Task.sleep(for: .seconds(1))
+                    }
+                    actual.portReady = false
+                }
+            }
+        } catch {
+            serviceRuns[key]?.active = false
+            serviceRuns[key]?.status = "Failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func releaseGroup(_ pid: Int32) { ownedGroups.remove(pid) }
+
+    private func finished(_ run: ServiceRun, code: Int32, runningID: UUID) {
+        run.active = false
+        run.status = "Exited (\(code))"
+        run.portReady = false
+        runningServices.removeAll { $0.id == runningID }
+    }
+
+    var hasOwnedProcesses: Bool {
+        ownedGroups = ownedGroups.filter { kill(-$0, 0) == 0 }
+        return !ownedGroups.isEmpty
+    }
+
+    func stopForQuit() async {
+        let groups = ownedGroups.filter { kill(-$0, 0) == 0 }
+        for pid in groups { kill(-pid, SIGTERM) }
+        try? await Task.sleep(for: .seconds(2))
+        for pid in groups where kill(-pid, 0) == 0 { kill(-pid, SIGKILL) }
+        let deadline = Date().addingTimeInterval(2)
+        while groups.contains(where: { kill(-$0, 0) == 0 }) && Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+    }
     var selection: Project.ID?
     var libraryError: String?
     private(set) var scanning: Set<Project.ID> = []

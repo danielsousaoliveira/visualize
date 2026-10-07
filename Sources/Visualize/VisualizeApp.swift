@@ -8,6 +8,7 @@ struct VisualizeApp: App {
     init() {
         let appState = AppState()
         _appState = State(initialValue: appState)
+        AppDelegate.appState = appState
         Task { await appState.scanProjectsWithoutResults() }
         Task { await appState.checkDocker() }
     }

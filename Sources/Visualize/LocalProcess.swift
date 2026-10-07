@@ -1,0 +1,96 @@
+import Foundation
+import Darwin
+
+struct LocalProcess {
+    static func environment() async throws -> [String: String] {
+        try await Task.detached {
+            let process = Process()
+            let outputURL = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+            guard FileManager.default.createFile(atPath: outputURL.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
+                throw NSError(domain: "Could not capture login environment", code: 1)
+            }
+            let output = try FileHandle(forUpdating: outputURL)
+            defer { try? output.close(); try? FileManager.default.removeItem(at: outputURL) }
+            let shell = ProcessInfo.processInfo.environment["SHELL"] ?? String(cString: getpwuid(getuid()).pointee.pw_shell)
+            process.executableURL = URL(filePath: shell)
+            process.arguments = ["-ilc", "/usr/bin/env -0"]
+            process.standardInput = FileHandle.nullDevice
+            process.standardOutput = output
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            let deadline = Date().addingTimeInterval(10)
+            while process.isRunning && Date() < deadline { try await Task.sleep(for: .milliseconds(50)) }
+            if process.isRunning { process.terminate(); kill(process.processIdentifier, SIGKILL) }
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { throw NSError(domain: "Login shell environment could not be captured", code: 1) }
+            try output.seek(toOffset: 0)
+            let data = try output.readToEnd() ?? Data()
+            var result: [String: String] = [:]
+            for entry in data.split(separator: 0) {
+                let value = String(decoding: entry, as: UTF8.self)
+                guard let separator = value.firstIndex(of: "=") else { continue }
+                let key = String(value[..<separator])
+                guard !key.isEmpty, !key.contains("\n") else { continue }
+                result[key] = String(value[value.index(after: separator)...])
+            }
+            guard result["PATH"] != nil else { throw NSError(domain: "Login shell did not return PATH", code: 1) }
+            return result
+        }.value
+    }
+
+    static func start(_ recipe: RunRecipe, environment: [String: String]) throws -> (Int32, FileHandle) {
+        guard let executable = recipe.argv.first, !executable.isEmpty,
+              !recipe.argv.contains(where: { $0.contains("\0") }) else { throw NSError(domain: "Invalid command", code: 1) }
+        let candidates = executable.contains("/") ? [NSString(string: executable).isAbsolutePath ? executable : URL(filePath: recipe.workingDirectory).appending(path: executable).path] :
+            (environment["PATH"] ?? "").components(separatedBy: ":").map { directory in
+                URL(filePath: directory.isEmpty ? recipe.workingDirectory : directory, relativeTo: URL(filePath: recipe.workingDirectory + "/")).appending(path: executable).path
+            }
+        guard let path = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
+            throw NSError(domain: "Tool not found in login PATH: \(executable)", code: 1)
+        }
+        let outputURL = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        guard FileManager.default.createFile(atPath: outputURL.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
+            throw NSError(domain: "Could not create service output buffer", code: 1)
+        }
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+        let writer = try FileHandle(forWritingTo: outputURL)
+        defer { try? writer.close() }
+        let reader = try FileHandle(forReadingFrom: outputURL)
+        var launched = false
+        defer { if !launched { try? reader.close() } }
+        var actions: posix_spawn_file_actions_t?
+        var attributes: posix_spawnattr_t?
+        posix_spawn_file_actions_init(&actions)
+        posix_spawnattr_init(&attributes)
+        defer { posix_spawn_file_actions_destroy(&actions); posix_spawnattr_destroy(&attributes) }
+        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT))
+        posix_spawnattr_setpgroup(&attributes, 0)
+        posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0)
+        posix_spawn_file_actions_adddup2(&actions, writer.fileDescriptor, STDOUT_FILENO)
+        posix_spawn_file_actions_adddup2(&actions, writer.fileDescriptor, STDERR_FILENO)
+        let directoryError = posix_spawn_file_actions_addchdir_np(&actions, recipe.workingDirectory)
+        guard directoryError == 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(directoryError)) }
+        let argv = recipe.argv.map { strdup($0) } + [nil]
+        let env = environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
+        defer { argv.forEach { free($0) }; env.forEach { free($0) } }
+        var pid: pid_t = 0
+        let result = argv.withUnsafeBufferPointer { arguments in
+            env.withUnsafeBufferPointer { values in
+                posix_spawn(&pid, path, &actions, &attributes, arguments.baseAddress!, values.baseAddress!)
+            }
+        }
+        guard result == 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(result)) }
+        launched = true
+        return (pid, reader)
+    }
+
+    static func listening(port: Int) -> Bool {
+        let process = Process()
+        process.executableURL = URL(filePath: "/usr/sbin/lsof")
+        process.arguments = ["-nP", "-iTCP:\(port)", "-sTCP:LISTEN", "-t"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do { try process.run(); process.waitUntilExit(); return process.terminationStatus == 0 }
+        catch { return false }
+    }
+}
