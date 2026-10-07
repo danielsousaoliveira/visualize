@@ -4,16 +4,20 @@ struct DockerCommand: Sendable {
     let executable: String
     let endpoint: String
 
+    private static func error(_ message: String) -> NSError {
+        NSError(domain: "VisualizeDocker", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+
     static func connect(overridePath: String?) throws -> Self {
         let paths = overridePath.map { [NSString(string: $0).expandingTildeInPath] } ?? DockerChecker().searchPaths
         guard let executable = paths.first(where: { FileManager.default.isExecutableFile(atPath: $0) }),
               let context = try? CommandOutput.run(executable, arguments: ["context", "show"]), context.status == 0 else {
-            throw NSError(domain: "Docker CLI unavailable", code: 1)
+            throw Self.error("Docker CLI unavailable")
         }
         let name = String(decoding: context.data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         let result = try CommandOutput.run(executable, arguments: ["context", "inspect", name, "--format", "{{json .Endpoints.docker.Host}}"])
         guard result.status == 0, let endpoint = try? JSONDecoder().decode(String.self, from: result.data), endpoint.hasPrefix("unix:///") else {
-            throw NSError(domain: "Docker requires a local Unix socket", code: 1)
+            throw Self.error("Docker requires a local Unix socket")
         }
         return Self(executable: executable, endpoint: endpoint)
     }
@@ -23,7 +27,7 @@ struct DockerCommand: Sendable {
             let process = Process()
             let outputURL = FileManager.default.temporaryDirectory.appending(path: "visualize-docker-output-\(UUID().uuidString)")
             guard FileManager.default.createFile(atPath: outputURL.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
-                throw NSError(domain: "Could not capture Docker output", code: 1)
+                throw Self.error("Could not capture Docker output")
             }
             defer { try? FileManager.default.removeItem(at: outputURL) }
             let writer = try FileHandle(forWritingTo: outputURL)
@@ -50,7 +54,7 @@ struct DockerCommand: Sendable {
                     await output(chunk)
                 }
                 let totalSize = (try? FileManager.default.attributesOfItem(atPath: outputURL.path)[.size] as? NSNumber)?.intValue ?? 0
-                guard totalSize <= 67_108_864 else { throw NSError(domain: "Docker output exceeded 64 MB", code: 1) }
+                guard totalSize <= 67_108_864 else { throw Self.error("Docker output exceeded 64 MB") }
                 if finished, reader.offsetInFile >= UInt64(totalSize) { break }
                 if ContinuousClock.now >= deadline {
                     process.terminate()
@@ -60,12 +64,12 @@ struct DockerCommand: Sendable {
                         kill(process.processIdentifier, SIGKILL)
                         while process.isRunning { try await Task.sleep(for: .milliseconds(50)) }
                     }
-                    throw NSError(domain: "Docker command timed out", code: 1)
+                    throw Self.error("Docker command timed out")
                 }
                 try await Task.sleep(for: .milliseconds(50))
             }
             guard process.terminationReason == .exit, process.terminationStatus == 0 else {
-                throw NSError(domain: "Docker command failed (\(process.terminationStatus))", code: Int(process.terminationStatus))
+                throw Self.error("Docker command failed (\(process.terminationStatus))")
             }
             return captured
         }.value

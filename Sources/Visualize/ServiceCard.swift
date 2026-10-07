@@ -63,7 +63,7 @@ struct ServiceCard: View {
                 if let reason = appState.dockerReason(project: project, service: service) {
                     Text(reason).font(.callout).foregroundStyle(.secondary)
                 }
-                if let run, run.status.lowercased().contains("failed") {
+                if let run, run.status.hasPrefix("Failed:") {
                     Text(run.lastOutputLines).font(.callout.monospaced()).textSelection(.enabled)
                 }
                 if let run, run.docker == nil, let current = appState.recipe(project: project, service: service),

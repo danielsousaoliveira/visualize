@@ -15,8 +15,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch alert.runModal() {
         case .alertFirstButtonReturn:
             Task {
-                await state.stopForQuit()
-                sender.reply(toApplicationShouldTerminate: true)
+                let stopped = await state.stopForQuit()
+                sender.reply(toApplicationShouldTerminate: stopped)
+                if !stopped {
+                    let failure = NSAlert()
+                    failure.messageText = "Some services could not be stopped"
+                    failure.informativeText = "Check the service cards for details, then try quitting again."
+                    failure.runModal()
+                }
             }
             return .terminateLater
         case .alertSecondButtonReturn: return .terminateNow

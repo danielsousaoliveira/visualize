@@ -9,6 +9,10 @@ struct DockerRun {
     let composeArguments: [String]
     var containerIDs: [String]
 
+    static func projectSlug(_ project: Project) -> String {
+        "\(slug(project.name))-\(project.id.uuidString.prefix(8).lowercased())"
+    }
+
     static func slug(_ value: String) -> String {
         let cleaned = String(value.lowercased().map { character in
             character.isASCII && (character.isLetter || character.isNumber || "-_".contains(character)) ? character : "-"
