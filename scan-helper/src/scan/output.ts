@@ -10,10 +10,10 @@ import {
   type ScanService,
 } from "./contract";
 
-type ServiceWithoutDevCommand = Omit<ScanService, "devCommand">;
+type ServiceWithoutDevCommand = Omit<ScanService, "devCommand" | "runModes">;
 
 interface ScannedService {
-  service: ScanService;
+  service: Omit<ScanService, "runModes">;
   warning?: string;
   infraSource: InfraSource;
   envSource: EnvSource;
@@ -25,6 +25,7 @@ import { deriveDevCommand } from "./dev-command";
 import { detectInfra, type InfraSource } from "./infra";
 import { detectEnvRequirements, type EnvComposeFile, type EnvSource } from "./env-requirements";
 import { detectConnections, type ConnectionSource } from "./connections";
+import { detectRunModes } from "./run-modes";
 import type { StackId } from "../core";
 
 const DOCKERFILE = "Dockerfile";
@@ -115,7 +116,14 @@ async function detectStackIn(
   directory: string,
 ): Promise<StackResult | undefined> {
   const snapshot = await readProjectSnapshot(reader, directory === "." ? "" : directory);
-  return snapshot.files.length > 0 ? buildProjectRootSnapshot(snapshot).stack : undefined;
+  if (snapshot.files.length === 0) return undefined;
+  const detected = buildProjectRootSnapshot(snapshot).stack;
+  if (detected.stack !== "docker") return detected;
+  const local = buildProjectRootSnapshot({
+    ...snapshot,
+    files: snapshot.files.filter((file) => file.name.toLowerCase() !== "dockerfile"),
+  }).stack;
+  return local.stack !== "unknown" && local.stack !== "static" ? local : detected;
 }
 
 function serviceRecipe(source: {
@@ -185,7 +193,9 @@ async function withDevCommand(
   );
   const fileNames = entries.map((entry) => entry.name);
   const result = deriveDevCommand({
-    stackId: service.stackId as StackId,
+    stackId: (service.stackId === "docker"
+      ? (await detectStackIn(reader, service.rootDirectory))?.stack ?? service.stackId
+      : service.stackId) as StackId,
     packageManager: devPackageManager(service, fileNames, workspacePackageManager),
     scripts: await packageScripts(reader, service.rootDirectory),
     startCommand: service.startCommand,
@@ -351,16 +361,10 @@ function collectWarnings(info: ProjectInfo, composeDirectory: string): string[] 
   ];
 }
 
-async function collectServices(
+async function collectLocalServices(
   info: ProjectInfo,
   reader: ProjectReader,
-  composeDirectory: string,
 ): Promise<ScannedService[]> {
-  if (info.services) {
-    return Promise.all(
-      info.services.map((service) => composeService(reader, service, composeDirectory)),
-    );
-  }
   if (info.monorepoApps) {
     return Promise.all(
       info.monorepoApps.map((app) =>
@@ -379,6 +383,34 @@ async function collectServices(
   ];
 }
 
+async function collectServices(
+  info: ProjectInfo,
+  reader: ProjectReader,
+  composeDirectory: string,
+): Promise<ScannedService[]> {
+  const composed = await Promise.all(
+    (info.services ?? []).map((service) => composeService(reader, service, composeDirectory)),
+  );
+  if (info.projectType === "services") return composed;
+  const local = await collectLocalServices(info, reader);
+  const matched = new Set<string>();
+  for (const app of local) {
+    const matching = composed.find((candidate) =>
+      candidate.infraSource.directory !== null &&
+      candidate.service.rootDirectory === app.service.rootDirectory,
+    );
+    if (!matching) continue;
+    matched.add(matching.service.id);
+    app.envSource.composeEnvFiles = matching.envSource.composeEnvFiles;
+    app.envSource.serviceName = matching.envSource.serviceName;
+    app.infraSource.compose = matching.infraSource.compose;
+    app.connectionSource.compose = matching.connectionSource.compose;
+  }
+  return [...local, ...composed.filter((candidate) =>
+    !matched.has(candidate.service.id),
+  )];
+}
+
 export async function toScanResult(info: ProjectInfo, reader: ProjectReader): Promise<ScanResult> {
   const composeDirectory = toRelativeDirectory(posix.dirname(info.composeFileRead ?? "."));
   const scanned = await collectServices(info, reader, composeDirectory);
@@ -386,7 +418,10 @@ export async function toScanResult(info: ProjectInfo, reader: ProjectReader): Pr
     reader,
     scanned.map(({ envSource }) => envSource),
   );
-  const services = scanned.map(({ service }) => service);
+  const services: ScanService[] = await Promise.all(scanned.map(async ({ service }) => ({
+    ...service,
+    runModes: await detectRunModes(reader, service, info),
+  })));
   const infra = await detectInfra(
     reader,
     scanned.map(({ infraSource }) => infraSource),

@@ -58,6 +58,170 @@
     }
   },
   "$defs": {
+    "localRunMode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "available",
+        "reason"
+      ],
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      },
+      "if": {
+        "properties": {
+          "available": {
+            "const": false
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "composeRunMode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "available",
+        "reason",
+        "composeFile",
+        "serviceName"
+      ],
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "composeFile": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/relativePath"
+            }
+          ]
+        },
+        "serviceName": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      },
+      "if": {
+        "properties": {
+          "available": {
+            "const": false
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "dockerfileRunMode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "available",
+        "reason",
+        "dockerfilePath",
+        "containerPort"
+      ],
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "dockerfilePath": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/relativePath"
+            }
+          ]
+        },
+        "containerPort": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 65535
+        }
+      },
+      "if": {
+        "properties": {
+          "available": {
+            "const": false
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "runModes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "local",
+        "compose",
+        "dockerfile"
+      ],
+      "properties": {
+        "local": {
+          "$ref": "#/$defs/localRunMode"
+        },
+        "compose": {
+          "$ref": "#/$defs/composeRunMode"
+        },
+        "dockerfile": {
+          "$ref": "#/$defs/dockerfileRunMode"
+        }
+      }
+    },
     "relativePath": {
       "type": "string",
       "minLength": 1,
@@ -83,7 +247,8 @@
         "startCommand",
         "port",
         "hasDockerfile",
-        "devCommand"
+        "devCommand",
+        "runModes"
       ],
       "properties": {
         "id": {
@@ -105,6 +270,7 @@
           "description": "For a compose service, true only when it builds from a local context that holds its Dockerfile.",
           "type": "boolean"
         },
+        "runModes": { "$ref": "#/$defs/runModes" },
         "devCommand": {
           "description": "What a developer would type to run the service locally. Null when none could be derived; a warning then says why.",
           "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/devCommand" }]

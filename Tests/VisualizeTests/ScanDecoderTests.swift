@@ -112,6 +112,33 @@ struct ScanDecoderTests {
         #expect(requirement.variables.first == ScanEnvVariable(name: "A", status: .set, declaredIn: [".env.example", ".env"]))
     }
 
+    @Test func decodesRunModes() throws {
+        let url = Self.goldenDirectory.appending(path: "scan-run-modes.json")
+        let result = try ScanDecoder.decode(Data(contentsOf: url))
+        let api = try #require(result.services.first { $0.rootDirectory == "apps/api" })
+        #expect(api.runModes.local.available)
+        #expect(api.runModes.compose.serviceName == "api")
+        #expect(api.runModes.compose.composeFile == "compose.yaml")
+        #expect(api.runModes.dockerfile.dockerfilePath == "apps/api/Dockerfile")
+        #expect(api.runModes.dockerfile.containerPort == 8080)
+        let db = try #require(result.services.first { $0.name == "db" })
+        #expect(!db.runModes.local.available)
+        #expect(db.runModes.local.reason == "no dev command detected")
+        #expect(db.runModes.compose.available)
+        #expect(!db.runModes.dockerfile.available)
+    }
+
+    @Test func preservesSavedResultsWithoutRunModes() throws {
+        let url = Self.goldenDirectory.appending(path: "scan-node-dev.json")
+        var object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        var services = try #require(object["services"] as? [[String: Any]])
+        for index in services.indices { services[index].removeValue(forKey: "runModes") }
+        object["services"] = services
+        let result = try ScanDecoder.decode(JSONSerialization.data(withJSONObject: object))
+        #expect(result.services.first?.runModes.local.available == true)
+        #expect(result.services.first?.runModes.dockerfile.reason == "rescan required")
+    }
+
     @Test func rejectsANewerSchemaVersion() throws {
         let url = Self.goldenDirectory.appending(path: "deploy-node.json")
         var object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])

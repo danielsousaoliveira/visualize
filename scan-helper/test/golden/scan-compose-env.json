@@ -28,6 +28,24 @@
         ],
         "workingDirectory": "api",
         "source": "script:start"
+      },
+      "runModes": {
+        "local": {
+          "available": true,
+          "reason": null
+        },
+        "compose": {
+          "available": true,
+          "reason": null,
+          "composeFile": "docker-compose.yml",
+          "serviceName": "api"
+        },
+        "dockerfile": {
+          "available": true,
+          "reason": null,
+          "dockerfilePath": "api/Dockerfile",
+          "containerPort": 8080
+        }
       }
     },
     {
@@ -43,7 +61,25 @@
       "startCommand": null,
       "port": 5432,
       "hasDockerfile": false,
-      "devCommand": null
+      "devCommand": null,
+      "runModes": {
+        "local": {
+          "available": false,
+          "reason": "no dev command detected"
+        },
+        "compose": {
+          "available": true,
+          "reason": null,
+          "composeFile": "docker-compose.yml",
+          "serviceName": "db"
+        },
+        "dockerfile": {
+          "available": false,
+          "reason": "no Dockerfile in service root",
+          "dockerfilePath": null,
+          "containerPort": null
+        }
+      }
     },
     {
       "id": "compose:cache",
@@ -58,7 +94,25 @@
       "startCommand": null,
       "port": 6379,
       "hasDockerfile": false,
-      "devCommand": null
+      "devCommand": null,
+      "runModes": {
+        "local": {
+          "available": false,
+          "reason": "no dev command detected"
+        },
+        "compose": {
+          "available": true,
+          "reason": null,
+          "composeFile": "docker-compose.yml",
+          "serviceName": "cache"
+        },
+        "dockerfile": {
+          "available": false,
+          "reason": "no Dockerfile in service root",
+          "dockerfilePath": null,
+          "containerPort": null
+        }
+      }
     }
   ],
   "composeFiles": [

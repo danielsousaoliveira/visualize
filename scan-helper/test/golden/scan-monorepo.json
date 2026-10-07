@@ -28,6 +28,24 @@
         ],
         "workingDirectory": "apps/web",
         "source": "script:dev"
+      },
+      "runModes": {
+        "local": {
+          "available": true,
+          "reason": null
+        },
+        "compose": {
+          "available": false,
+          "reason": "no compose service for service root",
+          "composeFile": null,
+          "serviceName": null
+        },
+        "dockerfile": {
+          "available": false,
+          "reason": "no Dockerfile in service root",
+          "dockerfilePath": null,
+          "containerPort": null
+        }
       }
     },
     {
@@ -51,6 +69,24 @@
         ],
         "workingDirectory": "apps/api",
         "source": "script:start"
+      },
+      "runModes": {
+        "local": {
+          "available": true,
+          "reason": null
+        },
+        "compose": {
+          "available": false,
+          "reason": "no compose service for service root",
+          "composeFile": null,
+          "serviceName": null
+        },
+        "dockerfile": {
+          "available": true,
+          "reason": null,
+          "dockerfilePath": "apps/api/Dockerfile",
+          "containerPort": 3000
+        }
       }
     }
   ],
