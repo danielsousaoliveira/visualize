@@ -46,6 +46,32 @@ struct ProjectRunnerTests {
         #expect(!state.hasOwnedProcesses)
     }
 
+    @Test @MainActor func showsStoppingThenStoppedForStopAll() async throws {
+        let (state, original, folder) = try fixture()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        var project = original
+        project.lastResult?.services = Array(original.lastResult?.services.prefix(1) ?? [])
+        project.lastResult?.connections = []
+        project.lastResult?.services[0].devCommand?.argv = ["/usr/bin/perl", "-e", "$SIG{TERM} = 'IGNORE'; open my $ready, '>', 'ready' or die $!; close $ready; sleep 30;"]
+        let service = try #require(project.lastResult?.services.first)
+        await state.start(project: project, service: service, recipe: try #require(state.recipe(project: project, service: service)), storedEnvironment: ["PATH": "/usr/bin:/bin"])
+        let readyPath = folder.appending(path: "ready").path
+        let readyDeadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while !FileManager.default.fileExists(atPath: readyPath), ContinuousClock.now < readyDeadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(FileManager.default.fileExists(atPath: readyPath))
+        let stop = Task { await state.stopAll(project: project) }
+        let stoppingDeadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while state.projectOperations[project.id]?.statuses[service.id] != "stopping", ContinuousClock.now < stoppingDeadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(state.projectOperations[project.id]?.statuses[service.id] == "stopping")
+        await stop.value
+        #expect(state.projectOperations[project.id]?.statuses[service.id] == "stopped")
+        #expect(!state.hasOwnedProcesses)
+    }
+
     @Test @MainActor func blocksDependentsAfterStartFailure() async throws {
         let (state, original, folder) = try fixture()
         defer { try? FileManager.default.removeItem(at: folder) }

@@ -122,12 +122,12 @@ extension AppState {
             operation.statuses[service.id] = "skipped — not started by visualize"
             return
         }
-        operation.statuses[service.id] = "starting — stop"
+        operation.statuses[service.id] = "stopping"
         if run.docker != nil {
             while dockerOperationBusy(project.id) { try? await Task.sleep(for: .milliseconds(50)) }
         }
         await stop(project: project, service: service)
         let cleaned = await removeStoppedContainers(run)
-        operation.statuses[service.id] = run.active || !cleaned ? "failed — \(run.status)" : "skipped — stopped"
+        operation.statuses[service.id] = run.active || !cleaned ? "failed — \(run.status)" : "stopped"
     }
 }
