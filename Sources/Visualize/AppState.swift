@@ -112,31 +112,40 @@ final class AppState {
         await stop(run)
     }
 
-    private func stop(_ run: ServiceRun) async {
+    @discardableResult
+    private func stop(_ run: ServiceRun) async -> Bool {
         if run.stopping {
             while run.stopping { try? await Task.sleep(for: .milliseconds(50)) }
-            return
+            return !run.active
         }
-        guard run.active else { return }
+        guard run.active else { return true }
         run.stopping = true
         run.status = "Stopping…"
-        if let group = run.group {
-            let stopped = await Task.detached { await group.stop() }.value
-            if stopped {
-                while !run.leaderReaped { try? await Task.sleep(for: .milliseconds(50)) }
-            }
-            ownedGroups.remove(group.pid)
+        defer { run.stopping = false }
+        guard let group = run.group else {
+            run.status = "Stop failed: process-group identity unavailable"
+            return false
         }
+        let stopped = await Task.detached { await group.stop() }.value
+        guard stopped || group.confirmedGone else {
+            run.active = true
+            run.status = "Stop failed: could not safely signal the process group"
+            return false
+        }
+        if stopped {
+            while !run.leaderReaped { try? await Task.sleep(for: .milliseconds(50)) }
+        }
+        ownedGroups.remove(group.pid)
         if let id = run.runningID { runningServices.removeAll { $0.id == id } }
         run.active = false
-        run.stopping = false
         run.portReady = false
         run.status = "Exited"
+        return true
     }
 
     func restart(project: Project, service: ScanService, recipe: RunRecipe? = nil) async {
         guard let run = serviceRuns[runKey(project: project, service: service)], !run.stopping else { return }
-        await stop(run)
+        guard await stop(run) else { return }
         await start(project: project, service: service, recipe: recipe ?? run.recipe, storedEnvironment: run.launchEnvironment)
     }
 
