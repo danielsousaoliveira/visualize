@@ -38,6 +38,7 @@ interface EnvFileRead {
   entries: EnvFileEntry[];
   bareKeys: string[];
   malformedOffsets: number[];
+  unterminated: Set<EnvFileEntry>;
 }
 
 const BARE_KEY = /^[^\S\r\n]*(?:export[^\S\r\n]+)?([A-Za-z_][A-Za-z0-9_]*)\s*$/;
@@ -57,10 +58,13 @@ export function parseEnvFile(content: string): EnvFileEntry[] {
 }
 
 export function envFileKeys(content: string): EnvFileKeys {
-  const { entries, bareKeys, malformedOffsets } = readEnvFile(content);
+  const { entries, bareKeys, malformedOffsets, unterminated } = readEnvFile(content);
   return {
     keys: [
-      ...entries.map(({ key, value }) => ({ key, hasValue: value !== "" })),
+      ...entries.map((entry) => ({
+        key: entry.key,
+        hasValue: entry.value !== "" && !unterminated.has(entry),
+      })),
       ...bareKeys.map((key) => ({ key, hasValue: false })),
     ],
     malformedLines: malformedOffsets.map((offset) => lineNumberAt(content, offset)),
@@ -71,6 +75,7 @@ function readEnvFile(content: string): EnvFileRead {
   const entries: EnvFileEntry[] = [];
   const bareKeys: string[] = [];
   const malformedOffsets: number[] = [];
+  const unterminated = new Set<EnvFileEntry>();
   let cursor = content.startsWith("\uFEFF") ? 1 : 0;
   while (cursor < content.length) {
     const lineStart = cursor;
@@ -93,20 +98,25 @@ function readEnvFile(content: string): EnvFileRead {
     const quote = content[valueStart];
     if (quote === '"' || quote === "'") {
       const end = closingQuote(content, valueStart + 1, quote);
-      if (end < 0) malformedOffsets.push(lineStart);
       const quoted = content.slice(valueStart + 1, end < 0 ? lineEnd : end);
       if (end >= 0) {
         const nextLine = content.indexOf("\n", end + 1);
         cursor = nextLine < 0 ? content.length : nextLine + 1;
       }
+      let entry: EnvFileEntry;
       if (quote === "'") {
-        entries.push({ key, value: quoted.replace(/\\'/g, "'") });
+        entry = { key, value: quoted.replace(/\\'/g, "'") };
       } else {
         const decode = (protectDollars: boolean) =>
           quoted.replace(/\\([abfnrtv"\\$])/g, (_match, char: string) =>
             char === "$" && protectDollars ? "$$" : DOUBLE_QUOTE_ESCAPES[char]!,
           );
-        entries.push({ key, value: decode(false), interpolation: decode(true) });
+        entry = { key, value: decode(false), interpolation: decode(true) };
+      }
+      entries.push(entry);
+      if (end < 0) {
+        malformedOffsets.push(lineStart);
+        unterminated.add(entry);
       }
     } else {
       const value = content
@@ -116,7 +126,7 @@ function readEnvFile(content: string): EnvFileRead {
       entries.push({ key, value, interpolation: value });
     }
   }
-  return { entries, bareKeys, malformedOffsets };
+  return { entries, bareKeys, malformedOffsets, unterminated };
 }
 
 const ENCODE_ESCAPES: Readonly<Record<string, string>> = Object.fromEntries(
