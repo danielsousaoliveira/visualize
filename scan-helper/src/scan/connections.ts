@@ -2,7 +2,7 @@ import { posix } from "node:path";
 import { parseEnvFile } from "../core/env-file";
 import type { ScanConnection, ScanConnectionKind, ScanInfra, ScanService } from "./contract";
 import { EXAMPLE_ENV_FILES, REAL_ENV_FILES } from "./env-requirements";
-import { urlEndpoint } from "./infra";
+import { envInfra, urlEndpoint } from "./infra";
 import type { ProjectReader } from "./local-reader";
 
 export interface ConnectionComposeSource {
@@ -93,30 +93,31 @@ function single(address: string, ids: string[], otherwise: () => Resolution): Re
   return otherwise();
 }
 
-function resolveUrl(source: Node, nodes: Node[], infra: ScanInfra[], value: string): Resolution {
+function hostName(node: Node): string {
+  return (node.compose?.name ?? node.name).toLowerCase();
+}
+
+function resolveUrl(source: Node, nodes: Node[], infra: ScanInfra[], { key, value }: EnvValue): Resolution {
   const { host, port } = urlEndpoint(value);
   if (host === null) return NONE;
   const target = address(host, port);
+  const unresolved: Resolution = { kind: "unresolved", address: target };
   const others = nodes.filter((node) => node.id !== source.id);
   const infraIds = () => infraAt(infra, host, port).map((entry) => entry.id);
 
-  if (source.compose) {
-    if (isLoopback(host)) return NONE;
-    const named = others.filter((node) => node.compose?.name === host).map((node) => node.id);
-    return single(target, named, () =>
-      single(target, infraIds(), () =>
-        host.includes(".") ? NONE : { kind: "unresolved", address: target },
-      ),
-    );
+  if (isLoopback(host) && source.compose) return single(target, infraIds(), () => NONE);
+  if (!isLoopback(host)) {
+    const named = others.filter((node) => hostName(node) === host.toLowerCase()).map((node) => node.id);
+    const expectedInScan = !host.includes(".") || envInfra(key, value) !== undefined;
+    return single(target, named, () => single(target, infraIds(), () => (expectedInScan ? unresolved : NONE)));
   }
 
-  if (!isLoopback(host)) return single(target, infraIds(), () => NONE);
   if (port !== null && source.port === port) return NONE;
   const listening = others
     .filter((node) => port !== null && (node.compose ? node.compose.hostPorts.includes(port) : node.port === port))
     .map((node) => node.id);
   return single(target, listening, () =>
-    single(target, infraIds(), () => ({ kind: "unresolved", address: target })),
+    single(target, infraIds(), () => unresolved),
   );
 }
 
@@ -180,11 +181,11 @@ export async function detectConnections(
       ...Object.entries(compose?.environment ?? {}).map(([key, value]) => ({ key, value })),
       ...(await readEnvValues(reader, envFilesOf(service, compose))),
     ];
-    for (const { key, value } of envValues) {
-      if (!URL_VALUE.test(value)) continue;
-      const resolution = resolveUrl(node, nodes, infra, value);
-      if (resolution.kind === "target") connect(node.id, resolution.id, "env-url", key);
-      const warning = resolutionWarning(node.name, key, resolution);
+    for (const envValue of envValues) {
+      if (!URL_VALUE.test(envValue.value)) continue;
+      const resolution = resolveUrl(node, nodes, infra, envValue);
+      if (resolution.kind === "target") connect(node.id, resolution.id, "env-url", envValue.key);
+      const warning = resolutionWarning(node.name, envValue.key, resolution);
       if (warning && !warnings.includes(warning)) warnings.push(warning);
     }
 

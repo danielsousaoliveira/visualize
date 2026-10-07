@@ -132,6 +132,59 @@ describe("env URL matching", () => {
     ]);
   });
 
+  it("links a local service to a sibling app named in the URL host", async () => {
+    const root = folder("app-hostname", {
+      ...PNPM_ROOT,
+      "apps/web/package.json": nodeApp("web", 3000),
+      "apps/web/.env": "API_URL=http://api:4000\nDATABASE_URL=postgres://u:p@db:5432/x\n",
+      "apps/api/package.json": nodeApp("api", 4000),
+    });
+    expect(await connectionsOf(root)).toEqual({
+      connections: [
+        { from: "apps/web", to: "apps/api", kind: "env-url", label: "API_URL" },
+        { from: "apps/web", to: "infra:postgres", kind: "env-url", label: "DATABASE_URL" },
+        { from: "apps/web", to: "infra:postgres", kind: "uses-infra", label: "postgres" },
+      ],
+      warnings: [],
+    });
+  });
+
+  it("warns about a dotless host that names no service", async () => {
+    const root = folder("unknown-hostname", {
+      "package.json": nodeApp("svc", 3000),
+      ".env": "AUTH_URL=http://auth:9000\n",
+    });
+    expect((await connectionsOf(root)).warnings).toEqual([
+      'Service "svc": AUTH_URL points at auth:9000, which matches nothing in the scan; the connection is left out.',
+    ]);
+  });
+
+  it("warns about a database URL on an external host with no infra entry", async () => {
+    const root = folder("hosted-infra", {
+      "package.json": nodeApp("svc", 3000),
+      ".env.sample": "CACHE_URL=redis://cache.example.com:6379\n",
+    });
+    expect(await connectionsOf(root)).toEqual({
+      connections: [],
+      warnings: [
+        'Service "svc": CACHE_URL points at cache.example.com:6379, which matches nothing in the scan; the connection is left out.',
+      ],
+    });
+  });
+
+  it("links a database URL on an external host to its infra entry", async () => {
+    const root = folder("hosted-infra-entry", {
+      "package.json": nodeApp("svc", 3000),
+      ".env": "DATABASE_URL=postgres://u:p@prod.db.example.com:5432/x\n",
+    });
+    expect((await connectionsOf(root)).connections).toContainEqual({
+      from: ".",
+      to: "infra:postgres",
+      kind: "env-url",
+      label: "DATABASE_URL",
+    });
+  });
+
   it("ignores external hosts without a warning", async () => {
     const root = folder("external", {
       "package.json": nodeApp("svc", 3000),
