@@ -5,6 +5,7 @@ struct DockerChecker: Sendable {
         "/usr/local/bin/docker",
         "/usr/bin/docker",
         "/opt/homebrew/bin/docker",
+        FileManager.default.homeDirectoryForCurrentUser.appending(path: ".docker/bin/docker").path,
         FileManager.default.homeDirectoryForCurrentUser.appending(path: ".orbstack/bin/docker").path,
     ]
 

@@ -9,6 +9,42 @@ struct DockerCheckerTests {
         #expect(state.unavailableReason() == "Docker CLI not found")
     }
 
+    @Test func findsDockerDesktopUserCLI() async throws {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let dockerDirectory = home.appending(path: ".docker")
+        let binDirectory = dockerDirectory.appending(path: "bin")
+        let cli = binDirectory.appending(path: "docker")
+        let backup = FileManager.default.temporaryDirectory.appending(path: "visualize-docker-backup-\(UUID().uuidString)")
+        let hadDockerDirectory = FileManager.default.fileExists(atPath: dockerDirectory.path)
+        if hadDockerDirectory { try FileManager.default.moveItem(at: dockerDirectory, to: backup) }
+        defer {
+            try? FileManager.default.removeItem(at: dockerDirectory)
+            if hadDockerDirectory { try? FileManager.default.moveItem(at: backup, to: dockerDirectory) }
+        }
+        try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+        let stub = try StubHelper { _ in
+            """
+            if [ "$1" = context ]; then
+                if [ "$2" = show ]; then
+                    echo desktop-linux
+                else
+                    echo '"unix:///var/run/docker.sock"'
+                fi
+                exit 0
+            fi
+            if [ "$1" = --host ]; then
+                [ "$2" = unix:///var/run/docker.sock ] || exit 1
+                if [ "$3" = info ]; then echo '{"OperatingSystem":"Linux","Name":"docker"}'; else echo 2.39.0; fi
+                exit 0
+            fi
+            """
+        }
+        defer { stub.remove() }
+        try FileManager.default.copyItem(at: stub.executable, to: cli)
+        let state = await DockerChecker(searchPaths: [cli.path]).check(overridePath: nil)
+        #expect(state == .running(provider: "Docker Desktop", composeAvailable: true))
+    }
+
     @Test func stopsHungDockerAfterFiveSeconds() async throws {
         let stub = try StubHelper { dir in
             """
