@@ -203,6 +203,14 @@ struct ProjectLibraryTests {
         #expect(projects.first?.lastResult?.infra.map(\.id) == ["infra:postgres", "infra:redis"])
     }
 
+    @Test func numbersMissingInfraIdsPerKindLikeTheHelper() {
+        let entry = { (kind: ScanInfraKind) in
+            ScanInfra(id: "", kind: kind, usedBy: [], providedBy: nil, evidence: ["e"], host: nil, port: nil)
+        }
+        let filled = [entry(.postgres), entry(.postgres), entry(.redis), entry(.postgres)].fillingMissingIds()
+        #expect(filled.map(\.id) == ["infra:postgres", "infra:postgres-2", "infra:redis", "infra:postgres-3"])
+    }
+
     @Test func movesAnUnreadableLibraryAsideInsteadOfOverwritingIt() throws {
         defer { stub.remove() }
         try FileManager.default.createDirectory(at: stub.file("support"), withIntermediateDirectories: true)
