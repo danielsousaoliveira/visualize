@@ -356,7 +356,7 @@ function toProjectInfo(
   let services: ComposeService[] | undefined;
   let missingRequiredEnv: ComposeMissingVariable[] | undefined;
   let unsupportedCompose: ComposeUnsupportedField[] | undefined;
-  if (composeContent && stack.projectType === "services") {
+  if (composeContent) {
     try {
       const parsed = parseComposeFile(composeContent, {
         env: expressionsFor(Object.keys(rootEnv)),
@@ -391,7 +391,7 @@ function toProjectInfo(
 
   // Monorepo wins over the single-root projectType: when the root has a workspace
   // manifest AND we found 2+ deployable apps, expose the multi-app flow.
-  const isMonorepo = !services && monorepo && monorepo.apps.length >= 2;
+  const isMonorepo = stack.projectType !== "services" && monorepo && monorepo.apps.length >= 2;
   const projectType: ProjectType = isMonorepo ? "monorepo" : stack.projectType;
 
   return {

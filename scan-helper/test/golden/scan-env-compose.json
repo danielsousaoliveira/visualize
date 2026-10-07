@@ -12,10 +12,10 @@
       "name": "api",
       "kind": "compose",
       "rootDirectory": "api",
-      "stackId": "docker",
-      "category": "docker",
+      "stackId": "node",
+      "category": "backend",
       "packageManager": "npm",
-      "installCommand": null,
+      "installCommand": "npm i --force",
       "buildCommand": null,
       "startCommand": "npm run start",
       "port": 8080,
@@ -27,7 +27,25 @@
           "start"
         ],
         "workingDirectory": "api",
-        "source": "fallback-start"
+        "source": "script:start"
+      },
+      "runModes": {
+        "local": {
+          "available": true,
+          "reason": null
+        },
+        "compose": {
+          "available": true,
+          "reason": null,
+          "composeFile": "docker-compose.yml",
+          "serviceName": "api"
+        },
+        "dockerfile": {
+          "available": true,
+          "reason": null,
+          "dockerfilePath": "api/Dockerfile",
+          "containerPort": 8080
+        }
       }
     }
   ],

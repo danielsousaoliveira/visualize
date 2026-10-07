@@ -17,6 +17,17 @@ export interface ScanDevCommand {
   source: string;
 }
 
+export interface ScanRunMode {
+  available: boolean;
+  reason: string | null;
+}
+
+export interface ScanRunModes {
+  local: ScanRunMode;
+  compose: ScanRunMode & { composeFile: string | null; serviceName: string | null };
+  dockerfile: ScanRunMode & { dockerfilePath: string | null; containerPort: number | null };
+}
+
 export interface ScanService {
   id: string;
   name: string;
@@ -31,6 +42,7 @@ export interface ScanService {
   port: number | null;
   hasDockerfile: boolean;
   devCommand: ScanDevCommand | null;
+  runModes: ScanRunModes;
 }
 
 export interface ScanPortMapping {

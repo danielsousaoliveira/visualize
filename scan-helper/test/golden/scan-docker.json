@@ -20,7 +20,25 @@
       "startCommand": null,
       "port": 80,
       "hasDockerfile": true,
-      "devCommand": null
+      "devCommand": null,
+      "runModes": {
+        "local": {
+          "available": false,
+          "reason": "no dev command detected"
+        },
+        "compose": {
+          "available": false,
+          "reason": "no compose service for service root",
+          "composeFile": null,
+          "serviceName": null
+        },
+        "dockerfile": {
+          "available": true,
+          "reason": null,
+          "dockerfilePath": "Dockerfile",
+          "containerPort": 80
+        }
+      }
     }
   ],
   "composeFiles": [],

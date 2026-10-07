@@ -30,6 +30,24 @@
         ],
         "workingDirectory": ".",
         "source": "stack-default"
+      },
+      "runModes": {
+        "local": {
+          "available": true,
+          "reason": null
+        },
+        "compose": {
+          "available": false,
+          "reason": "no compose service for service root",
+          "composeFile": null,
+          "serviceName": null
+        },
+        "dockerfile": {
+          "available": false,
+          "reason": "no Dockerfile in service root",
+          "dockerfilePath": null,
+          "containerPort": null
+        }
       }
     }
   ],

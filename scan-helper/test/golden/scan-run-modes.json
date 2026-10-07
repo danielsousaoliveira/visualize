@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "project": {
-    "name": "infra-compose-pg",
-    "rootPath": "/fixtures/scan/infra-compose-pg",
+    "name": "run-modes",
+    "rootPath": "/fixtures/scan/run-modes",
     "gitBranch": null,
     "type": "services"
   },
@@ -11,23 +11,23 @@
       "id": "compose:api",
       "name": "api",
       "kind": "compose",
-      "rootDirectory": "api",
-      "stackId": "express",
+      "rootDirectory": "apps/api",
+      "stackId": "node",
       "category": "backend",
       "packageManager": "npm",
       "installCommand": "npm i --force",
       "buildCommand": null,
-      "startCommand": "npm run start",
-      "port": 8080,
+      "startCommand": "node index.js",
+      "port": null,
       "hasDockerfile": true,
       "devCommand": {
         "argv": [
           "npm",
           "run",
-          "start"
+          "dev"
         ],
-        "workingDirectory": "api",
-        "source": "script:start"
+        "workingDirectory": "apps/api",
+        "source": "script:dev"
       },
       "runModes": {
         "local": {
@@ -37,13 +37,13 @@
         "compose": {
           "available": true,
           "reason": null,
-          "composeFile": "docker-compose.yml",
+          "composeFile": "compose.yaml",
           "serviceName": "api"
         },
         "dockerfile": {
           "available": true,
           "reason": null,
-          "dockerfilePath": "api/Dockerfile",
+          "dockerfilePath": "apps/api/Dockerfile",
           "containerPort": 8080
         }
       }
@@ -59,7 +59,7 @@
       "installCommand": null,
       "buildCommand": null,
       "startCommand": null,
-      "port": 5432,
+      "port": null,
       "hasDockerfile": false,
       "devCommand": null,
       "runModes": {
@@ -70,7 +70,7 @@
         "compose": {
           "available": true,
           "reason": null,
-          "composeFile": "docker-compose.yml",
+          "composeFile": "compose.yaml",
           "serviceName": "db"
         },
         "dockerfile": {
@@ -83,34 +83,22 @@
     }
   ],
   "composeFiles": [
-    "docker-compose.yml"
+    "compose.yaml"
   ],
   "composeServices": [
     {
       "name": "api",
       "image": null,
-      "buildContext": "api",
-      "ports": [
-        {
-          "host": "8080",
-          "container": "8080"
-        }
-      ],
-      "dependsOn": [
-        "db"
-      ],
+      "buildContext": "apps/api",
+      "ports": [],
+      "dependsOn": [],
       "environment": []
     },
     {
       "name": "db",
       "image": "postgres:16",
       "buildContext": null,
-      "ports": [
-        {
-          "host": "5432",
-          "container": "5432"
-        }
-      ],
+      "ports": [],
       "dependsOn": [],
       "environment": []
     }
@@ -129,32 +117,16 @@
     {
       "id": "infra:postgres",
       "kind": "postgres",
-      "usedBy": [
-        "compose:api"
-      ],
+      "usedBy": [],
       "providedBy": "compose:db",
       "evidence": [
-        "image postgres:16 in compose service db",
-        "dependency pg in api/package.json"
+        "image postgres:16 in compose service db"
       ],
       "host": null,
       "port": null
     }
   ],
-  "connections": [
-    {
-      "from": "compose:api",
-      "to": "compose:db",
-      "kind": "depends_on",
-      "label": "depends_on"
-    },
-    {
-      "from": "compose:api",
-      "to": "infra:postgres",
-      "kind": "uses-infra",
-      "label": "postgres"
-    }
-  ],
+  "connections": [],
   "warnings": [
     "Service \"db\" has no dev command: it has no local source to run."
   ]
