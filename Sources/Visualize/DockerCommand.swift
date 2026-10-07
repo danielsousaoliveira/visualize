@@ -36,7 +36,8 @@ struct DockerCommand: Sendable {
             process.executableURL = URL(filePath: executable)
             process.arguments = ["--host", endpoint] + arguments
             process.currentDirectoryURL = URL(filePath: directory)
-            process.environment = ["HOME": FileManager.default.homeDirectoryForCurrentUser.path, "PATH": "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"]
+            let executableDirectory = URL(filePath: executable).deletingLastPathComponent().path
+            process.environment = ["HOME": FileManager.default.homeDirectoryForCurrentUser.path, "PATH": "\(executableDirectory):/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"]
             process.standardInput = FileHandle.nullDevice
             process.standardOutput = writer
             process.standardError = writer
