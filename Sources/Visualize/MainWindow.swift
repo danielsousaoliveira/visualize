@@ -10,6 +10,7 @@ struct MainWindow: View {
     var body: some View {
         NavigationSplitView {
             sidebar
+                .safeAreaInset(edge: .bottom) { DockerStatusView().padding() }
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240)
                 .toolbar {
                     ToolbarItem {

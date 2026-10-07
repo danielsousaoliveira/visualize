@@ -11,6 +11,21 @@ final class AppState {
     private(set) var scanning: Set<Project.ID> = []
     private(set) var scanErrors: [Project.ID: String] = [:]
 
+    private(set) var dockerState: DockerState = .checking
+    private(set) var isCheckingDocker = false
+    var dockerOverridePath: String? {
+        get { UserDefaults.standard.string(forKey: "dockerOverridePath") }
+        set { UserDefaults.standard.set(newValue, forKey: "dockerOverridePath") }
+    }
+
+    func checkDocker() async {
+        guard !isCheckingDocker else { return }
+        isCheckingDocker = true
+        dockerState = .checking
+        defer { isCheckingDocker = false }
+        dockerState = await DockerChecker().check(overridePath: dockerOverridePath)
+    }
+
     private let scanHelper: ScanHelper
     private let store: ProjectLibraryStore
     private var canSave = true

@@ -17,6 +17,8 @@ struct MenuBarPopover: View {
                 }
             }
 
+            DockerStatusView()
+
             Divider()
 
             HStack {

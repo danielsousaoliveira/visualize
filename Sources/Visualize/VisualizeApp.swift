@@ -9,12 +9,16 @@ struct VisualizeApp: App {
         let appState = AppState()
         _appState = State(initialValue: appState)
         Task { await appState.scanProjectsWithoutResults() }
+        Task { await appState.checkDocker() }
     }
 
     var body: some Scene {
         Window("visualize", id: MainWindow.id) {
             MainWindow()
                 .environment(appState)
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                    Task { await appState.checkDocker() }
+                }
         }
         .commands {
             LibraryCommands(appState: appState)

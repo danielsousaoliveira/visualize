@@ -12,6 +12,7 @@ struct RunModeChip: View {
             .padding(.horizontal, 9)
             .padding(.vertical, 5)
             .background(available ? Color.accentColor.opacity(0.12) : Color.secondary.opacity(0.08), in: Capsule())
+            .disabled(!available)
             .help(available ? "\(title) available" : reason ?? "\(title) unavailable")
             .accessibilityLabel("\(title): \(available ? "available" : reason ?? "unavailable")")
     }
