@@ -5,8 +5,11 @@ struct LocalProcess {
     static func readOutput(_ handle: FileHandle) async throws -> Data? {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
-                do { continuation.resume(returning: try handle.read(upToCount: 65_536)) }
-                catch { continuation.resume(throwing: error) }
+                var buffer = [UInt8](repeating: 0, count: 65_536)
+                var count: Int
+                repeat { count = read(handle.fileDescriptor, &buffer, buffer.count) } while count < 0 && errno == EINTR
+                if count < 0 { continuation.resume(throwing: NSError(domain: NSPOSIXErrorDomain, code: Int(errno))) }
+                else { continuation.resume(returning: count == 0 ? nil : Data(buffer.prefix(count))) }
             }
         }
     }
@@ -57,7 +60,7 @@ struct LocalProcess {
         }.value
     }
 
-    static func start(_ recipe: RunRecipe, environment: [String: String], outputDrainerURL: URL? = nil) throws -> (Int32, FileHandle) {
+    static func start(_ recipe: RunRecipe, environment: [String: String], outputDrainerURL: URL? = nil, stderr: Pipe? = nil) throws -> (Int32, FileHandle) {
         guard let executable = recipe.argv.first, !executable.isEmpty,
               !recipe.argv.contains(where: { $0.contains("\0") }) else { throw NSError(domain: "Invalid command", code: 1) }
         let candidates = executable.contains("/") ? [NSString(string: executable).isAbsolutePath ? executable : URL(filePath: recipe.workingDirectory).appending(path: executable).path] :
@@ -78,7 +81,7 @@ struct LocalProcess {
         try drainer.run()
         try? serviceOutput.fileHandleForReading.close()
         try? capturedOutput.fileHandleForWriting.close()
-        defer { try? serviceOutput.fileHandleForWriting.close() }
+        defer { try? serviceOutput.fileHandleForWriting.close(); try? stderr?.fileHandleForWriting.close() }
         let reader = capturedOutput.fileHandleForReading
         var launched = false
         defer { if !launched { try? reader.close() } }
@@ -98,7 +101,7 @@ struct LocalProcess {
         posix_spawnattr_setpgroup(&attributes, 0)
         posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0)
         posix_spawn_file_actions_adddup2(&actions, serviceOutput.fileHandleForWriting.fileDescriptor, STDOUT_FILENO)
-        posix_spawn_file_actions_adddup2(&actions, serviceOutput.fileHandleForWriting.fileDescriptor, STDERR_FILENO)
+        posix_spawn_file_actions_adddup2(&actions, stderr?.fileHandleForWriting.fileDescriptor ?? serviceOutput.fileHandleForWriting.fileDescriptor, STDERR_FILENO)
         let directoryError = posix_spawn_file_actions_addchdir_np(&actions, recipe.workingDirectory)
         guard directoryError == 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(directoryError)) }
         let argv = recipe.argv.map { strdup($0) } + [nil]

@@ -99,6 +99,7 @@ struct ProjectDetailView: View {
                         ContentUnavailableView("Nothing runnable detected in this folder", systemImage: "magnifyingglass")
                         warnings(result.warnings)
                     }
+                    ServiceLogsPanel(project: project, services: result.services)
                     if !result.services.isEmpty {
                         sectionTitle("Services", count: result.services.count)
                         ForEach(result.services) { service in

@@ -57,6 +57,27 @@ struct LocalProcessTests {
         #expect(String(decoding: run.output.suffix(6), as: UTF8.self) == "latest")
     }
 
+    @Test @MainActor func streamsBothChannelsBeforeServiceExit() async throws {
+        let recipe = RunRecipe(argv: ["/bin/sh", "-c", "printf '\\033[32mready\\033[0m\\n'; printf 'error\\n' >&2; sleep 2"], workingDirectory: "/tmp", addedEnvironmentKeys: [], startedAt: Date())
+        let errors = Pipe()
+        let (pid, output) = try LocalProcess.start(recipe, environment: ["PATH": "/bin"], outputDrainerURL: drainerURL, stderr: errors)
+        defer { kill(-pid, SIGKILL); var status: Int32 = 0; waitpid(pid, &status, 0); try? output.close(); try? errors.fileHandleForReading.close() }
+        let started = ContinuousClock.now
+        async let stdout = LocalProcess.readOutput(output)
+        async let stderr = LocalProcess.readOutput(errors.fileHandleForReading)
+        let captured = try await (stdout, stderr)
+        #expect(started.duration(to: .now) < .seconds(1))
+        #expect(kill(pid, 0) == 0)
+        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let log = ServiceLog(fileURL: folder.appending(path: "service.log"))
+        log.append(try #require(captured.0))
+        log.append(try #require(captured.1), isError: true)
+        #expect(log.lines.contains { $0.text == "ready" && !$0.isError })
+        #expect(log.lines.contains { $0.text == "error" && $0.isError })
+        #expect(await log.writer.flush() == nil)
+    }
+
     @Test func disconnectedCaptureKeepsNoisyServiceRunning() async throws {
         let recipe = RunRecipe(argv: ["/bin/sh", "-c", "/bin/dd if=/dev/zero bs=65536 count=64 2>/dev/null; exit 0"], workingDirectory: "/tmp", addedEnvironmentKeys: [], startedAt: Date())
         let (pid, output) = try LocalProcess.start(recipe, environment: ["PATH": "/bin"], outputDrainerURL: drainerURL)

@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Observation
 
 @MainActor
@@ -6,6 +7,7 @@ import Observation
 final class AppState {
     private(set) var projects: [Project] = []
     var runningServices: [RunningService] = []
+    private(set) var serviceLogs: [String: ServiceLog] = [:]
     private(set) var serviceRuns: [String: ServiceRun] = [:]
     var launchedServices: [UUID: [String: ScanService]] = [:]
     var projectRunResults: [UUID: ScanResult] = [:]
@@ -25,6 +27,17 @@ final class AppState {
 
     func runKey(project: Project, service: ScanService) -> String {
         "\(project.id.uuidString):\(service.id)"
+    }
+
+    func logs(project: Project, service: ScanService) -> ServiceLog {
+        let key = runKey(project: project, service: service)
+        if let log = serviceLogs[key] { return log }
+        let root = store.fileURL.deletingLastPathComponent().appending(path: "Logs/\(project.id.uuidString)")
+        let digest = SHA256.hash(data: Data(service.id.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
+        let filename = "\(DockerRun.slug(service.name).prefix(40))-\(digest)"
+        let log = ServiceLog(fileURL: root.appending(path: "\(filename).log"))
+        serviceLogs[key] = log
+        return log
     }
 
     func recipe(project: Project, service: ScanService) -> RunRecipe? {
@@ -60,7 +73,10 @@ final class AppState {
             let recorded = RunRecipe(argv: recipe.argv, workingDirectory: recipe.workingDirectory, addedEnvironmentKeys: environment.keys.filter { ProcessInfo.processInfo.environment[$0] == nil }.sorted(), startedAt: Date())
             let actual = ServiceRun(recipe: recorded)
             serviceRuns[key] = actual
-            let (pid, output) = try LocalProcess.start(recorded, environment: environment, outputDrainerURL: outputDrainerURL)
+            let log = logs(project: project, service: service)
+            actual.log = log
+            let stderr = Pipe()
+            let (pid, output) = try LocalProcess.start(recorded, environment: environment, outputDrainerURL: outputDrainerURL, stderr: stderr)
             ownedGroups.insert(pid)
             launchedServices[project.id, default: [:]][service.id] = service
             actual.pid = pid
@@ -75,11 +91,10 @@ final class AppState {
             if !approvals.contains(recipe.approvalKey) { approvals.append(recipe.approvalKey) }
             UserDefaults.standard.set(approvals, forKey: approvalStore)
             Task.detached {
-                while true {
-                    guard let data = try? await LocalProcess.readOutput(output), !data.isEmpty else { break }
-                    await actual.append(data)
+                await OrderedOutputReader.drain(stdout: output, stderr: stderr.fileHandleForReading) { data, isError in
+                    if let data { actual.append(data, isError: isError) }
+                    else { log.finish(isError: isError) }
                 }
-                try? output.close()
                 await actual.finishOutput()
                 while kill(-pid, 0) == 0 { try? await Task.sleep(for: .milliseconds(100)) }
                 await self.releaseGroup(pid)
