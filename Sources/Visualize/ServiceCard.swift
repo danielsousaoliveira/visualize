@@ -118,6 +118,7 @@ struct ServiceCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(8)
         }
+        .disabled(appState.projectOperations[project.id]?.busy == true)
         .sheet(isPresented: $showConfirmation) {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Run this command?").font(.title2)

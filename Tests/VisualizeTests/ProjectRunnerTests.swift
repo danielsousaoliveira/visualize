@@ -1,0 +1,180 @@
+import Darwin
+import Foundation
+import Testing
+@testable import visualize
+
+@Suite(.serialized)
+struct ProjectRunnerTests {
+    @MainActor private func fixture() throws -> (AppState, Project, URL) {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "project-run-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        var result = try ScanDecoder.decode(Data(contentsOf: ScanDecoderTests.goldenDirectory.appending(path: "scan-compose-env.json")))
+        let template = try #require(result.services.first)
+        result.services = ["db", "api", "web"].map { name in
+            var service = template
+            service.id = name
+            service.name = name
+            service.rootDirectory = "."
+            service.port = nil
+            service.devCommand = ScanDevCommand(argv: ["/bin/sleep", "60"], workingDirectory: ".", source: "test")
+            service.runModes = ScanRunModes(local: ScanRunMode(available: true, reason: nil), compose: ScanComposeRunMode(available: false, reason: nil, composeFile: nil, serviceName: nil), dockerfile: ScanDockerfileRunMode(available: false, reason: nil, dockerfilePath: nil, containerPort: nil))
+            return service
+        }
+        result.infra = []
+        result.connections = [ScanConnection(from: "web", to: "api", kind: .envURL, label: "API_URL"), ScanConnection(from: "api", to: "db", kind: .dependsOn, label: "depends_on")]
+        let root = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let paths = [".build/out/Products/Debug/visualize", ".build/debug/visualize"]
+        let drainer = try #require(paths.map { root.appending(path: $0) }.first { FileManager.default.isExecutableFile(atPath: $0.path) })
+        let state = AppState(store: ProjectLibraryStore(directory: folder.appending(path: "library")), outputDrainerURL: drainer)
+        return (state, Project(folder: folder, lastResult: result), folder)
+    }
+
+    @Test @MainActor func preservesRunningPIDAndStopsProject() async throws {
+        let (state, project, folder) = try fixture()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let db = try #require(project.lastResult?.services.first)
+        await state.start(project: project, service: db, recipe: try #require(state.recipe(project: project, service: db)))
+        let pid = try #require(state.serviceRuns[state.runKey(project: project, service: db)]?.pid)
+        await state.startAll(project: project, mode: .configured)
+        #expect(state.serviceRuns[state.runKey(project: project, service: db)]?.pid == pid)
+        #expect(state.projectOperations[project.id]?.order == ["db", "api", "web"])
+        #expect(state.projectOperations[project.id]?.statuses["db"] == "skipped — already running")
+        var rescanned = project
+        rescanned.lastResult?.services = []
+        await state.stopAll(project: rescanned)
+        #expect(state.projectOperations[project.id]?.order == ["web", "api", "db"])
+        #expect(!state.hasOwnedProcesses)
+    }
+
+    @Test @MainActor func blocksDependentsAfterStartFailure() async throws {
+        let (state, original, folder) = try fixture()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let previous = state.dockerOverridePath
+        state.dockerOverridePath = nil
+        defer { state.dockerOverridePath = previous }
+        var project = original
+        project.lastResult?.services[1].devCommand?.argv = ["/usr/bin/false"]
+        project.lastResult?.services[1].port = 49991
+        await state.startAll(project: project, mode: .local)
+        #expect(state.projectOperations[project.id]?.statuses["web"] == "blocked by api")
+        #expect(state.serviceRuns["\(project.id.uuidString):web"] == nil)
+        await state.stopAll(project: project)
+        #expect(!state.hasOwnedProcesses)
+    }
+
+    @Test @MainActor func startsCycleTogetherAndWarns() async throws {
+        let (state, original, folder) = try fixture()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        var project = original
+        project.lastResult?.connections.append(ScanConnection(from: "db", to: "api", kind: .dependsOn, label: "depends_on"))
+        await state.startAll(project: project, mode: .local)
+        #expect(state.projectOperations[project.id]?.warnings.count == 1)
+        #expect(state.projectOperations[project.id]?.statuses.values.allSatisfy { $0 == "running" } == true)
+        await state.stopAll(project: project)
+        #expect(!state.hasOwnedProcesses)
+    }
+
+
+    @Test @MainActor func waitsForTCPBeforeStartingDependents() async throws {
+        let (state, original, folder) = try fixture()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let previous = state.dockerOverridePath
+        state.dockerOverridePath = nil
+        defer { state.dockerOverridePath = previous }
+        let socketFD = socket(AF_INET, SOCK_STREAM, 0)
+        guard socketFD >= 0 else { throw NSError(domain: "test socket", code: 1) }
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(socketFD, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+        }
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let named = withUnsafeMutablePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(socketFD, $0, &length) }
+        }
+        close(socketFD)
+        #expect(bound == 0 && named == 0)
+        let port = Int(UInt16(bigEndian: address.sin_port))
+        var project = original
+        project.lastResult?.services[0].port = port
+        project.lastResult?.services[0].devCommand?.argv = ["/bin/sh", "-c", "sleep 1; exec /usr/bin/nc -lk 127.0.0.1 \(port)"]
+        let run = Task { await state.startAll(project: project, mode: .local) }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(15))
+        while state.projectOperations[project.id]?.statuses["db"] != "running", ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(state.serviceRuns["\(project.id.uuidString):api"] == nil)
+        await run.value
+        #expect(state.projectOperations[project.id]?.statuses["api"] == "running", "\(state.projectOperations[project.id]?.statuses ?? [:])")
+        #expect(TCPProbe.accepts(port: port))
+        await state.stopAll(project: project)
+        #expect(!state.hasOwnedProcesses)
+    }
+
+    @Test @MainActor func batchesComposeAndFallsBackToLocal() async throws {
+        let (state, original, folder) = try fixture()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        var project = original
+        for index in 0..<2 {
+            project.lastResult?.services[index].runModes.compose = ScanComposeRunMode(available: true, reason: nil, composeFile: "compose.yaml", serviceName: index == 0 ? "db" : "api")
+        }
+        try "services: {}".write(to: folder.appending(path: "compose.yaml"), atomically: true, encoding: .utf8)
+        let stub = try StubHelper { dir in
+            """
+            printf '%s\\n' "$*" >> '\(dir.path)/calls'
+            case "$*" in
+              'context show') printf 'test\\n';;
+              'context inspect '*) printf '"unix:///test/docker.sock"\\n';;
+              *' info '*) printf '{}\\n';;
+              *'compose version'*) printf '2.30.0\\n';;
+              *' up '*) touch '\(dir.path)/started';;
+              *'compose '*' ps '*) printf 'db-id\\napi-id\\n';;
+              *'inspect --format'*) printf '\(state.dockerOwnership) \(project.id.uuidString)\\n';;
+              *'--filter label=com.docker.compose.project='*)
+                if [ -f '\(dir.path)/started' ]; then
+                  [ -f '\(dir.path)/stopped-db' ] || printf 'db-id\\tdb\\n'
+                  [ -f '\(dir.path)/stopped-api' ] || printf 'api-id\\tapi\\n'
+                fi;;
+              *' stop db') touch '\(dir.path)/stopped-db';;
+              *' stop api') touch '\(dir.path)/stopped-api';;
+              *' rm '*) :;;
+              *) exit 1;;
+            esac
+            exit 0
+            """
+        }
+        defer { stub.remove() }
+        let previous = state.dockerOverridePath
+        state.dockerOverridePath = stub.executable.path
+        defer { state.dockerOverridePath = previous }
+        await state.checkDocker()
+        await state.startAll(project: project, mode: .docker)
+        #expect(state.projectOperations[project.id]?.statuses.values.allSatisfy { $0 == "running" } == true)
+        let calls = try String(contentsOf: stub.file("calls"), encoding: .utf8).split(separator: "\n").map(String.init)
+        let ups = calls.filter { $0.contains(" up ") }
+        #expect(ups.count == 1)
+        #expect(ups.first?.contains("--no-deps --no-recreate db api") == true)
+        let web = try #require(state.serviceRuns["\(project.id.uuidString):web"])
+        #expect(web.pid != nil)
+        #expect(web.docker == nil)
+        await state.stopAll(project: project)
+        #expect(!state.hasOwnedProcesses)
+        let stopped = try String(contentsOf: stub.file("calls"), encoding: .utf8)
+        #expect(stopped.contains(" rm api-id"))
+        #expect(stopped.contains(" rm db-id"))
+    }
+
+    @Test @MainActor func fallsBackWithoutChangingRememberedModes() throws {
+        let (_, project, folder) = try fixture()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        var service = try #require(project.lastResult?.services.first)
+        #expect(ProjectStartMode.docker.resolve(service, remembered: .local) == .local)
+        service.runModes.compose = ScanComposeRunMode(available: true, reason: nil, composeFile: "compose.yaml", serviceName: "db")
+        #expect(ProjectStartMode.docker.resolve(service, remembered: .local) == .compose)
+        #expect(ProjectStartMode.configured.resolve(service, remembered: .local) == .local)
+        service.runModes.local.available = false
+        #expect(ProjectStartMode.local.resolve(service, remembered: .compose) == .compose)
+    }
+}
