@@ -71,7 +71,7 @@ struct ServiceLogTests {
         let arguments = try String(contentsOf: folder.appending(path: "arguments"), encoding: .utf8)
         #expect(arguments == "--host\nunix:///tmp/docker.sock\nlogs\n-f\n--tail\n500\ncontainer-id\n")
         let pid = Int32(try String(contentsOf: folder.appending(path: "pid"), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines))!
-        follower.stop()
+        await follower.stop().value
         let stopped = ContinuousClock.now.advanced(by: .seconds(2))
         while kill(pid, 0) == 0 && ContinuousClock.now < stopped { try await Task.sleep(for: .milliseconds(20)) }
         #expect(kill(pid, 0) == -1)
@@ -105,8 +105,7 @@ struct ServiceLogTests {
             #expect(log.text.contains("ready to accept connections"))
             let pattern = "logs -f --tail 500 " + id
             #expect(try CommandOutput.run("/usr/bin/pgrep", arguments: ["-f", pattern]).status == 0)
-            follower.stop()
-            try await Task.sleep(for: .milliseconds(1200))
+            await follower.stop().value
             #expect(try CommandOutput.run("/usr/bin/pgrep", arguments: ["-f", pattern]).status == 1)
             #expect(await log.writer.flush() == nil)
             #expect(try String(contentsOf: log.writer.url, encoding: .utf8).contains("ready to accept connections"))
@@ -173,6 +172,70 @@ struct ServiceLogTests {
         #expect(saved.contains("final stdout"))
         #expect(saved.contains("final stderr"))
         #expect(log.writer.url.path.hasPrefix(folder.path))
+    }
+
+    @Test @MainActor func interleavedPartialLinesKeepObservedOrder() async throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let log = ServiceLog(fileURL: folder.appending(path: "ordered.log"))
+        log.append(Data("first".utf8))
+        log.append(Data("second\n".utf8), isError: true)
+        log.append(Data("third\n".utf8))
+        #expect(log.lines.map(\.text) == ["first", "second", "third"])
+        #expect(log.lines.map(\.isError) == [false, true, false])
+        #expect(await log.writer.flush() == nil)
+        #expect(try String(contentsOf: log.writer.url, encoding: .utf8) == "[stdout] first\n[stderr] second\n[stdout] third\n")
+    }
+
+    @Test @MainActor func reopenWaitsForTermIgnoringFollower() async throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let executable = folder.appending(path: "docker-stub")
+        try Data("#!/usr/bin/perl\n$SIG{TERM} = 'IGNORE'; $| = 1; open my $p, '>>', 'pids' or die $!; print $p qq($$\\n); close $p; print qq(ready\\n); sleep 30;\n".utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        let docker = DockerRun(command: DockerCommand(executable: executable.path, endpoint: "unix:///tmp/docker.sock"), mode: .compose, projectID: UUID(), projectSlug: "test", serviceName: "db", composeArguments: [], containerIDs: ["test-id"])
+        let log = ServiceLog(fileURL: folder.appending(path: "db.log"))
+        let follower = DockerLogFollower()
+        defer { follower.stop() }
+        follower.start(docker, directory: folder.path, log: log)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while log.lines.isEmpty && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        let first = Int32(try String(contentsOf: folder.appending(path: "pids"), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines))!
+        let cleanup = follower.stop()
+        follower.start(docker, directory: folder.path, log: log)
+        await cleanup.value
+        #expect(kill(first, 0) == -1)
+        let reopened = ContinuousClock.now.advanced(by: .seconds(2))
+        var pids: [Int32] = []
+        repeat {
+            pids = (try String(contentsOf: folder.appending(path: "pids"), encoding: .utf8)).split(whereSeparator: \.isWhitespace).compactMap { Int32($0) }
+            if pids.count < 2 { try await Task.sleep(for: .milliseconds(10)) }
+        } while pids.count < 2 && ContinuousClock.now < reopened
+        #expect(pids.count == 2)
+        #expect(kill(first, 0) == -1)
+        await follower.stop().value
+        for pid in pids { #expect(kill(pid, 0) == -1) }
+    }
+
+    @Test @MainActor func readyStreamsUseStdoutThenStderrTieBreak() async throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let log = ServiceLog(fileURL: folder.appending(path: "ordered.log"))
+        let output = Pipe()
+        let errors = Pipe()
+        try output.fileHandleForWriting.write(contentsOf: Data("first\n".utf8))
+        try errors.fileHandleForWriting.write(contentsOf: Data("second\n".utf8))
+        try output.fileHandleForWriting.close()
+        try errors.fileHandleForWriting.close()
+        await OrderedOutputReader.drain(stdout: output.fileHandleForReading, stderr: errors.fileHandleForReading) { data, isError in
+            if let data { log.append(data, isError: isError) }
+            else { log.finish(isError: isError) }
+        }
+        #expect(log.lines.map(\.text) == ["first", "second"])
+        #expect(log.lines.map(\.isError) == [false, true])
+        #expect(await log.writer.flush() == nil)
+        #expect(try String(contentsOf: log.writer.url, encoding: .utf8) == "[stdout] first\n[stderr] second\n")
     }
 
 }

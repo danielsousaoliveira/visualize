@@ -9,7 +9,7 @@ struct ServiceLogView: View {
     @State private var match = 0
     @State private var following = true
     @State private var jump = 0
-    @State private var follower = DockerLogFollower()
+    private var follower: DockerLogFollower { log.dockerFollower }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {

@@ -20,13 +20,14 @@ final class LogFileWriter: @unchecked Sendable {
                 }
                 var offset = 0
                 while offset < data.count {
-                    let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue ?? 0
-                    if size >= limit { try rotate(); continue }
                     if !FileManager.default.fileExists(atPath: url.path) {
                         guard FileManager.default.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
                             throw CocoaError(.fileWriteUnknown)
                         }
                     }
+                    let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+                    guard let size = (attributes[.size] as? NSNumber)?.intValue else { throw CocoaError(.fileReadUnknown) }
+                    if size >= limit { try rotate(); continue }
                     let handle = try FileHandle(forWritingTo: url)
                     defer { try? handle.close() }
                     try handle.seekToEnd()

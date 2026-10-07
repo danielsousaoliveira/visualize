@@ -77,13 +77,6 @@ final class AppState {
             actual.log = log
             let stderr = Pipe()
             let (pid, output) = try LocalProcess.start(recorded, environment: environment, outputDrainerURL: outputDrainerURL, stderr: stderr)
-            Task.detached {
-                while let data = try? await LocalProcess.readOutput(stderr.fileHandleForReading), !data.isEmpty {
-                    await actual.append(data, isError: true)
-                }
-                try? stderr.fileHandleForReading.close()
-                await log.finish(isError: true)
-            }
             ownedGroups.insert(pid)
             launchedServices[project.id, default: [:]][service.id] = service
             actual.pid = pid
@@ -98,12 +91,10 @@ final class AppState {
             if !approvals.contains(recipe.approvalKey) { approvals.append(recipe.approvalKey) }
             UserDefaults.standard.set(approvals, forKey: approvalStore)
             Task.detached {
-                while true {
-                    guard let data = try? await LocalProcess.readOutput(output), !data.isEmpty else { break }
-                    await actual.append(data)
+                await OrderedOutputReader.drain(stdout: output, stderr: stderr.fileHandleForReading) { data, isError in
+                    if let data { actual.append(data, isError: isError) }
+                    else { log.finish(isError: isError) }
                 }
-                try? output.close()
-                await log.finish(isError: false)
                 await actual.finishOutput()
                 while kill(-pid, 0) == 0 { try? await Task.sleep(for: .milliseconds(100)) }
                 await self.releaseGroup(pid)
