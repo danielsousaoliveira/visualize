@@ -1,0 +1,5 @@
+{
+  "name": "@repo/api-client",
+  "private": true,
+  "main": "index.js"
+}

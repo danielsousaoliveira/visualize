@@ -41,6 +41,7 @@
   ],
   "infra": [
     {
+      "id": "infra:postgres",
       "kind": "postgres",
       "usedBy": [
         "."
@@ -53,6 +54,13 @@
       "port": null
     }
   ],
-  "connections": [],
+  "connections": [
+    {
+      "from": ".",
+      "to": "infra:postgres",
+      "kind": "uses-infra",
+      "label": "postgres"
+    }
+  ],
   "warnings": []
 }

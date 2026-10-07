@@ -41,6 +41,7 @@
   ],
   "infra": [
     {
+      "id": "infra:mysql",
       "kind": "mysql",
       "usedBy": [
         "."
@@ -53,6 +54,13 @@
       "port": null
     }
   ],
-  "connections": [],
+  "connections": [
+    {
+      "from": ".",
+      "to": "infra:mysql",
+      "kind": "uses-infra",
+      "label": "mysql"
+    }
+  ],
   "warnings": []
 }

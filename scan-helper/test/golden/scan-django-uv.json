@@ -44,6 +44,7 @@
   ],
   "infra": [
     {
+      "id": "infra:sqlite",
       "kind": "sqlite",
       "usedBy": [
         "."
@@ -56,6 +57,13 @@
       "port": null
     }
   ],
-  "connections": [],
+  "connections": [
+    {
+      "from": ".",
+      "to": "infra:sqlite",
+      "kind": "uses-infra",
+      "label": "sqlite"
+    }
+  ],
   "warnings": []
 }

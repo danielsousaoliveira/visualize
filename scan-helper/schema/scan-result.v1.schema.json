@@ -48,7 +48,10 @@
       "type": "array",
       "items": { "$ref": "#/$defs/infra" }
     },
-    "connections": { "type": "array", "maxItems": 0 },
+    "connections": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/connection" }
+    },
     "warnings": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 }
@@ -143,8 +146,13 @@
       "description": "A database or cache the project needs. One entry per compose service that provides the kind and per distinct external host and port, and one for the kind when neither applies. Env values are read only for scheme, host and port.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "usedBy", "providedBy", "evidence", "host", "port"],
+      "required": ["id", "kind", "usedBy", "providedBy", "evidence", "host", "port"],
       "properties": {
+        "id": {
+          "description": "infra:<kind> for the first entry of a kind, infra:<kind>-<n> for the nth.",
+          "type": "string",
+          "pattern": "^infra:"
+        },
         "kind": { "enum": ["postgres", "mysql", "mongodb", "redis", "sqlite"] },
         "usedBy": {
           "description": "Ids of the services that use it.",
@@ -163,6 +171,25 @@
         },
         "host": { "type": ["string", "null"], "minLength": 1 },
         "port": { "type": ["integer", "null"], "minimum": 1, "maximum": 65535 }
+      }
+    },
+    "connection": {
+      "description": "A directed edge between two services, or from a service to an infra entry. At most one per from, to and kind. Edges whose target is not in the scan are left out with a warning.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to", "kind", "label"],
+      "properties": {
+        "from": { "description": "Service id.", "type": "string", "minLength": 1 },
+        "to": { "description": "Service id or infra id.", "type": "string", "minLength": 1 },
+        "kind": {
+          "description": "depends_on: compose depends_on. env-url: an env value is a URL whose host and port match the target. uses-infra: the source uses the infra entry. workspace-dep: a monorepo app lists another app as a dependency.",
+          "enum": ["depends_on", "env-url", "uses-infra", "workspace-dep"]
+        },
+        "label": {
+          "description": "depends_on, the env variable name, the infra kind, or the package name.",
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "envRequirement": {

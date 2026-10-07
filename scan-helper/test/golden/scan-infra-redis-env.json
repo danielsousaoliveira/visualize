@@ -49,6 +49,7 @@
   ],
   "infra": [
     {
+      "id": "infra:redis",
       "kind": "redis",
       "usedBy": [
         "."
@@ -61,6 +62,19 @@
       "port": 6380
     }
   ],
-  "connections": [],
+  "connections": [
+    {
+      "from": ".",
+      "to": "infra:redis",
+      "kind": "env-url",
+      "label": "REDIS_URL"
+    },
+    {
+      "from": ".",
+      "to": "infra:redis",
+      "kind": "uses-infra",
+      "label": "redis"
+    }
+  ],
   "warnings": []
 }

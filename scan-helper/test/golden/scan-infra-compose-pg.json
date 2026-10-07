@@ -91,6 +91,7 @@
   ],
   "infra": [
     {
+      "id": "infra:postgres",
       "kind": "postgres",
       "usedBy": [
         "compose:api"
@@ -104,7 +105,20 @@
       "port": null
     }
   ],
-  "connections": [],
+  "connections": [
+    {
+      "from": "compose:api",
+      "to": "compose:db",
+      "kind": "depends_on",
+      "label": "depends_on"
+    },
+    {
+      "from": "compose:api",
+      "to": "infra:postgres",
+      "kind": "uses-infra",
+      "label": "postgres"
+    }
+  ],
   "warnings": [
     "Service \"db\" has no dev command: it has no local source to run."
   ]
