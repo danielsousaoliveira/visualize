@@ -8,7 +8,7 @@ final class AppState {
     var runningServices: [RunningService] = []
     private(set) var serviceRuns: [String: ServiceRun] = [:]
     private var ownedGroups: Set<Int32> = []
-    private let loginEnvironment = Task { try await LocalProcess.environment() }
+    private var loginEnvironment = Task { try await LocalProcess.environment() }
 
     func runKey(project: Project, service: ScanService) -> String {
         "\(project.id.uuidString):\(service.id)"
@@ -29,7 +29,16 @@ final class AppState {
         let run = ServiceRun(recipe: recipe)
         serviceRuns[key] = run
         do {
-            let environment = try await loginEnvironment.value
+            let capture = loginEnvironment
+            let environment: [String: String]
+            do {
+                environment = try await capture.value
+            } catch {
+                if loginEnvironment == capture {
+                    loginEnvironment = Task { try await LocalProcess.environment() }
+                }
+                throw error
+            }
             let recorded = RunRecipe(argv: recipe.argv, workingDirectory: recipe.workingDirectory, addedEnvironmentKeys: environment.keys.filter { ProcessInfo.processInfo.environment[$0] == nil }.sorted(), startedAt: Date())
             let actual = ServiceRun(recipe: recorded)
             serviceRuns[key] = actual
