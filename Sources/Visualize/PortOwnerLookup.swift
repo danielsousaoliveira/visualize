@@ -61,8 +61,6 @@ struct PortOwnerLookup {
             owner.containerID = id
             owner.containerName = String(name.drop(while: { $0 == "/" }))
             owner.composeProject = (container["ComposeProject"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            owner.dockerPath = path
-            owner.dockerEndpoint = endpoint
             containerOwners.append(owner)
         }
         if !containerOwners.isEmpty {
@@ -72,10 +70,4 @@ struct PortOwnerLookup {
         return owners
     }
 
-    static func stopContainer(_ owner: PortOwner) throws {
-        guard let id = owner.containerID, let path = owner.dockerPath, let endpoint = owner.dockerEndpoint,
-              DockerChecker().run(path, arguments: ["--host", endpoint, "stop", "--time", "3", "--", id]) != nil else {
-            throw NSError(domain: "Could not stop container", code: 1)
-        }
-    }
 }

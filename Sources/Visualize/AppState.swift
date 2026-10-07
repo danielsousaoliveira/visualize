@@ -30,14 +30,20 @@ final class AppState {
         let key = runKey(project: project, service: service)
         guard serviceRuns[key]?.active != true, !checkingPorts.contains(key), !resolvingPorts.contains(key) else { return }
         if !bypassPortCheck, let port = service.port {
-            guard portConflict == nil else { return }
+            guard portConflict == nil else {
+                reportDeferredStart(key: key, recipe: recipe)
+                return
+            }
             checkingPorts.insert(key)
             let override = dockerOverridePath
             do {
                 let owners = try await Task.detached { try PortOwnerLookup.owners(port: port, dockerOverridePath: override) }.value
                 checkingPorts.remove(key)
                 if !owners.isEmpty {
-                    guard portConflict == nil else { return }
+                    guard portConflict == nil else {
+                        reportDeferredStart(key: key, recipe: recipe)
+                        return
+                    }
                     portConflict = PortConflict(project: project, service: service, recipe: recipe, environment: storedEnvironment, owners: owners)
                     return
                 }
@@ -116,6 +122,13 @@ final class AppState {
         }
     }
 
+    private func reportDeferredStart(key: String, recipe: RunRecipe) {
+        let run = ServiceRun(recipe: recipe)
+        run.active = false
+        run.status = "Start not handled: resolve the open port conflict, then press Play again"
+        serviceRuns[key] = run
+    }
+
     func projectName(for owner: PortOwner) -> String? {
         guard let directory = owner.workingDirectory else { return nil }
         let path = Project.canonicalPath(of: URL(filePath: directory))
@@ -125,7 +138,19 @@ final class AppState {
     }
 
     func owns(_ owner: PortOwner) -> Bool {
-        serviceRuns.values.contains { $0.active && $0.group?.pid == getpgid(owner.pid) }
+        ownedRun(for: owner) != nil
+    }
+
+    private func ownedRun(for owner: PortOwner) -> ServiceRun? {
+        serviceRuns.values.first { $0.active && $0.group?.contains(owner) == true }
+    }
+
+    func stopUnavailableReason(for owner: PortOwner) -> String? {
+        if owns(owner) { return nil }
+        if owner.containerID == nil, owner.uid != nil, owner.uid != getuid() || owner.uid == 0 {
+            return "Owned by another user"
+        }
+        return "Not started by visualize"
     }
 
     func resolve(_ conflict: PortConflict, stopOwners: Bool) async {
@@ -137,15 +162,12 @@ final class AppState {
         portConflict = nil
         do {
             if stopOwners {
-                for owner in conflict.owners {
-                    guard owner.canStop else { throw NSError(domain: "Owned by another user", code: 1) }
-                    if owner.containerID != nil {
-                        try await Task.detached { try PortOwnerLookup.stopContainer(owner) }.value
-                    } else if let run = serviceRuns.values.first(where: { $0.active && $0.group?.pid == getpgid(owner.pid) }) {
-                        guard await stop(run) else { throw NSError(domain: "Could not stop owned service", code: 1) }
-                    } else {
-                        try owner.terminate()
-                    }
+                let runs = conflict.owners.compactMap { ownedRun(for: $0) }
+                guard runs.count == conflict.owners.count else {
+                    throw NSError(domain: "Port owner is not verified as started by visualize", code: 1)
+                }
+                for run in runs {
+                    guard await stop(run) else { throw NSError(domain: "Could not stop owned service", code: 1) }
                 }
                 let deadline = ContinuousClock.now.advanced(by: .seconds(10))
                 while true {
