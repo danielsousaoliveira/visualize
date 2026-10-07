@@ -1,6 +1,10 @@
 import SwiftUI
 
 struct ProjectDetailView: View {
+    @Environment(AppState.self) private var appState
+    @State private var pendingStartMode: ProjectStartMode?
+    @State private var pendingCommands: [RunRecipe] = []
+    @State private var showStartConfirmation = false
     let project: Project
     let isScanning: Bool
     let error: String?
@@ -9,23 +13,60 @@ struct ProjectDetailView: View {
     let onRemove: () -> Void
 
     var body: some View {
-        if project.folderExists {
-            VStack(spacing: 0) {
-                if let error {
-                    errorBanner(error)
-                    Divider()
+        Group {
+            if project.folderExists {
+                VStack(spacing: 0) {
+                    if let error {
+                        errorBanner(error)
+                        Divider()
+                    }
+                    content
                 }
-                content
+            } else {
+                ContentUnavailableView {
+                    Label("Folder missing", systemImage: "questionmark.folder")
+                } description: {
+                    Text("\(project.folderPath) no longer exists. It may have been moved or renamed.")
+                } actions: {
+                    Button("Locate…", action: onLocate)
+                    Button("Remove", role: .destructive, action: onRemove)
+                }
             }
-        } else {
-            ContentUnavailableView {
-                Label("Folder missing", systemImage: "questionmark.folder")
-            } description: {
-                Text("\(project.folderPath) no longer exists. It may have been moved or renamed.")
-            } actions: {
-                Button("Locate…", action: onLocate)
-                Button("Remove", role: .destructive, action: onRemove)
-            }
+        }
+        .sheet(isPresented: $showStartConfirmation) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Run these commands?").font(.title2)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(Array(pendingCommands.enumerated()), id: \.offset) { _, recipe in
+                            Text(recipe.displayCommand).font(.body.monospaced()).textSelection(.enabled)
+                            Text(recipe.workingDirectory).font(.callout.monospaced()).foregroundStyle(.secondary)
+                        }
+                    }
+                }.frame(maxHeight: 320)
+                HStack {
+                    Spacer()
+                    Button("Cancel") { showStartConfirmation = false }.keyboardShortcut(.cancelAction)
+                    Button("Start all") {
+                        if let mode = pendingStartMode { Task { await appState.startAll(project: project, mode: mode) } }
+                        showStartConfirmation = false
+                    }.keyboardShortcut(.defaultAction)
+                }
+            }.padding(24).frame(minWidth: 480)
+        }
+    }
+
+    private func requestStart(_ mode: ProjectStartMode) {
+        pendingCommands = (project.lastResult?.services ?? []).compactMap { service in
+            guard appState.serviceRuns[appState.runKey(project: project, service: service)]?.active != true,
+                  mode.resolve(service, remembered: appState.mode(project: project, service: service)) == .local,
+                  let recipe = appState.recipe(project: project, service: service), !appState.approved(recipe, project: project) else { return nil }
+            return recipe
+        }
+        if pendingCommands.isEmpty { Task { await appState.startAll(project: project, mode: mode) } }
+        else {
+            pendingStartMode = mode
+            showStartConfirmation = true
         }
     }
 
@@ -35,6 +76,20 @@ struct ProjectDetailView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 24) {
                     header(result)
+                    if let operation = appState.projectOperations[project.id] {
+                        GroupBox("Project progress") {
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(operation.warnings, id: \.self) { Text($0).foregroundStyle(.orange) }
+                                ForEach(operation.order, id: \.self) { id in
+                                    HStack {
+                                        Text(result.services.first { $0.id == id }?.name ?? id)
+                                        Spacer()
+                                        Text(operation.statuses[id] ?? "waiting").foregroundStyle(.secondary)
+                                    }
+                                }
+                            }.frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
                     DisclosureGroup("Warnings (\(result.warnings.count))") {
                         warnings(result.warnings)
                     }
@@ -92,8 +147,15 @@ struct ProjectDetailView: View {
                 Text(project.name).font(.title.bold())
                 Spacer()
                 if isScanning { ProgressView().controlSize(.small) }
+                Menu("Start all") {
+                    ForEach(ProjectStartMode.allCases) { mode in
+                        Button(mode.rawValue) { requestStart(mode) }
+                    }
+                }.disabled(appState.projectOperations[project.id]?.busy == true || isScanning)
+                Button("Stop all") { Task { await appState.stopAll(project: project) } }
+                    .disabled(appState.projectOperations[project.id]?.busy == true)
                 Button("Rescan", systemImage: "arrow.clockwise", action: onRescan)
-                    .disabled(isScanning)
+                    .disabled(isScanning || appState.projectOperations[project.id]?.busy == true)
             }
             Text(project.folderPath)
                 .font(.callout.monospaced())

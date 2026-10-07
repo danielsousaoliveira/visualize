@@ -7,14 +7,21 @@ final class AppState {
     private(set) var projects: [Project] = []
     var runningServices: [RunningService] = []
     private(set) var serviceRuns: [String: ServiceRun] = [:]
+    var launchedServices: [UUID: [String: ScanService]] = [:]
+    var projectRunResults: [UUID: ScanResult] = [:]
+    var projectOperations: [UUID: ProjectOperation] = [:]
     var portConflict: PortConflict?
     var portLookupError: String?
     private var resolvingPorts: Set<String> = []
     private var startingServices: Set<String> = []
     private var dockerProjects: Set<UUID> = []
+    private var dockerStarts: [UUID: Int] = [:]
     let dockerOwnership: String
     private var ownedGroups: Set<Int32> = []
+    private let outputDrainerURL: URL?
     private var loginEnvironment = Task { try await LocalProcess.environment() }
+
+    func dockerOperationBusy(_ id: UUID) -> Bool { dockerProjects.contains(id) || dockerStarts[id, default: 0] > 0 }
 
     func runKey(project: Project, service: ScanService) -> String {
         "\(project.id.uuidString):\(service.id)"
@@ -53,8 +60,9 @@ final class AppState {
             let recorded = RunRecipe(argv: recipe.argv, workingDirectory: recipe.workingDirectory, addedEnvironmentKeys: environment.keys.filter { ProcessInfo.processInfo.environment[$0] == nil }.sorted(), startedAt: Date())
             let actual = ServiceRun(recipe: recorded)
             serviceRuns[key] = actual
-            let (pid, output) = try LocalProcess.start(recorded, environment: environment)
+            let (pid, output) = try LocalProcess.start(recorded, environment: environment, outputDrainerURL: outputDrainerURL)
             ownedGroups.insert(pid)
+            launchedServices[project.id, default: [:]][service.id] = service
             actual.pid = pid
             actual.group = OwnedProcessGroup.capture(pid)
             actual.launchEnvironment = environment
@@ -68,7 +76,7 @@ final class AppState {
             UserDefaults.standard.set(approvals, forKey: approvalStore)
             Task.detached {
                 while true {
-                    guard let data = try? output.read(upToCount: 65_536), !data.isEmpty else { break }
+                    guard let data = try? await LocalProcess.readOutput(output), !data.isEmpty else { break }
                     await actual.append(data)
                 }
                 try? output.close()
@@ -78,8 +86,7 @@ final class AppState {
             }
             Task.detached {
                 var status: Int32 = 0
-                var exitInfo = siginfo_t()
-                while waitid(P_PID, UInt32(pid), &exitInfo, WEXITED | WNOWAIT) == -1 && errno == EINTR {}
+                await LocalProcess.waitForExit(pid)
                 if let group = await actual.group {
                     while group.exists { try? await Task.sleep(for: .milliseconds(100)) }
                 }
@@ -293,7 +300,7 @@ final class AppState {
 
     @discardableResult
     func stopForQuit() async -> Bool {
-        while !dockerProjects.isEmpty || serviceRuns.values.contains(where: { $0.busy || $0.stopping }) {
+        while !dockerProjects.isEmpty || !dockerStarts.isEmpty || projectOperations.values.contains(where: { $0.busy }) || serviceRuns.values.contains(where: { $0.busy || $0.stopping }) {
             try? await Task.sleep(for: .milliseconds(50))
         }
         let runs = Array(serviceRuns.values.filter { $0.active })
@@ -333,7 +340,8 @@ final class AppState {
     private let store: ProjectLibraryStore
     private var canSave = true
 
-    init(scanHelper: ScanHelper = .bundled(), store: ProjectLibraryStore = .applicationSupport(), dockerOwnership: String? = nil) {
+    init(scanHelper: ScanHelper = .bundled(), store: ProjectLibraryStore = .applicationSupport(), dockerOwnership: String? = nil, outputDrainerURL: URL? = nil) {
+        self.outputDrainerURL = outputDrainerURL
         if let dockerOwnership { self.dockerOwnership = dockerOwnership }
         else if let saved = UserDefaults.standard.string(forKey: "dockerOwnership"), UUID(uuidString: saved) != nil { self.dockerOwnership = saved }
         else {
@@ -462,13 +470,18 @@ extension AppState {
         return selected == .local ? nil : dockerState.unavailableReason(compose: selected == .compose)
     }
 
-    func startDocker(project: Project, service: ScanService) async {
+    func startDocker(project: Project, service: ScanService, selectedMode: ServiceMode? = nil, composeServices: [ScanService]? = nil, parallel: Bool = false) async {
         let key = runKey(project: project, service: service)
-        let selected = mode(project: project, service: service)
-        guard selected != .local, dockerReason(project: project, service: service) == nil,
-              serviceRuns[key]?.active != true, !dockerProjects.contains(project.id) else { return }
-        dockerProjects.insert(project.id)
-        defer { dockerProjects.remove(project.id) }
+        let selected = selectedMode ?? mode(project: project, service: service)
+        guard selected != .local, dockerState.unavailableReason(compose: selected == .compose) == nil,
+              serviceRuns[key]?.active != true, !dockerProjects.contains(project.id),
+              parallel || !dockerOperationBusy(project.id) else { return }
+        launchedServices[project.id, default: [:]][service.id] = service
+        dockerStarts[project.id, default: 0] += 1
+        defer {
+            dockerStarts[project.id, default: 0] -= 1
+            if dockerStarts[project.id] == 0 { dockerStarts[project.id] = nil }
+        }
         let run = ServiceRun(recipe: RunRecipe(argv: [], workingDirectory: project.folderPath, addedEnvironmentKeys: [], startedAt: Date()))
         run.busy = true
         serviceRuns[key] = run
@@ -493,7 +506,7 @@ extension AppState {
                 try JSONSerialization.data(withJSONObject: ["services": Dictionary(entries, uniquingKeysWith: { first, _ in first })]).write(to: overrideURL, options: .atomic)
                 defer { try? FileManager.default.removeItem(at: overrideURL) }
                 run.docker = DockerRun(command: command, mode: selected, projectID: project.id, projectSlug: slug, serviceName: name, composeArguments: base, containerIDs: [])
-                _ = try await command.run(base + ["-f", overrideURL.path, "up", "-d", name], directory: project.folderPath) { run.append($0) }
+                _ = try await command.run(base + ["-f", overrideURL.path, "up", "-d"] + (composeServices.map { ["--no-deps", "--no-recreate"] + $0.compactMap { $0.runModes.compose.serviceName } } ?? [name]), directory: project.folderPath) { run.append($0) }
                 try await refreshCompose(project: project, source: run)
             } else {
                 guard let path = service.runModes.dockerfile.dockerfilePath,
@@ -537,6 +550,7 @@ extension AppState {
                 }
             } else { monitorDocker(project: project, run: run) }
         } catch {
+            if run.docker?.mode == .compose { try? await refreshCompose(project: project, source: run) }
             run.active = false
             run.status = "Failed: \(error.localizedDescription)"
             run.portReady = false
@@ -563,6 +577,22 @@ extension AppState {
         }
     }
 
+    func removeStoppedContainers(_ run: ServiceRun) async -> Bool {
+        guard let docker = run.docker, !run.active, docker.mode == .compose else { return !run.active }
+        guard !docker.containerIDs.isEmpty else { return false }
+        do {
+            try await verifyDockerOwnership(docker.containerIDs, command: docker.command, directory: run.recipe.workingDirectory, projectID: docker.projectID)
+            for id in docker.containerIDs {
+                _ = try await docker.command.run(["rm", id], directory: run.recipe.workingDirectory) { run.append($0) }
+            }
+            run.docker = nil
+            return true
+        } catch {
+            run.status = "Cleanup failed: \(error.localizedDescription)"
+            return false
+        }
+    }
+
     private func markDockerRunning(_ run: ServiceRun, name: String) {
         run.active = true
         run.status = "Running in Docker"
@@ -577,7 +607,7 @@ extension AppState {
     private func refreshCompose(project: Project, source: ServiceRun) async throws {
         guard let docker = source.docker else { return }
         let data = try await docker.command.run(["ps", "--no-trunc", "--filter", "label=com.docker.compose.project=\(docker.projectSlug)", "--filter", "label=visualize.owner=\(dockerOwnership)", "--filter", "label=visualize.library=\(project.id.uuidString)", "--format", "{{.ID}}\t{{.Label \"com.docker.compose.service\"}}"], directory: project.folderPath)
-        if dockerProjects.contains(project.id), !source.busy { return }
+        if dockerOperationBusy(project.id), !source.busy { return }
         let rows = String(decoding: data, as: UTF8.self).split(separator: "\n").map { $0.split(separator: "\t").map(String.init) }
         for service in project.lastResult?.services ?? [] where service.runModes.compose.composeFile.flatMap({ try? DockerPath.resolve($0, project: project).path }).map({ docker.composeArguments.contains($0) }) == true {
             guard let name = service.runModes.compose.serviceName else { continue }
@@ -596,6 +626,7 @@ extension AppState {
             let run = serviceRuns[key] ?? ServiceRun(recipe: source.recipe)
             run.docker = DockerRun(command: docker.command, mode: .compose, projectID: project.id, projectSlug: docker.projectSlug, serviceName: name, composeArguments: docker.composeArguments, containerIDs: ids)
             serviceRuns[key] = run
+            launchedServices[project.id, default: [:]][service.id] = service
             markDockerRunning(run, name: service.name)
         }
         if source.busy, !rows.contains(where: { $0.count == 2 && $0[1] == docker.serviceName }) { throw dockerError("Compose service did not stay running") }
@@ -660,7 +691,7 @@ extension AppState {
             defer { run.monitoringDocker = false }
             while run.active {
                 try? await Task.sleep(for: .seconds(2))
-                guard run.active, !run.busy, !run.stopping, !dockerProjects.contains(project.id), let docker = run.docker, !docker.containerIDs.isEmpty else { continue }
+                guard run.active, !run.busy, !run.stopping, !dockerOperationBusy(project.id), let docker = run.docker, !docker.containerIDs.isEmpty else { continue }
                 do {
                     if docker.mode == .compose { try await refreshCompose(project: project, source: run) }
                     else {

@@ -2,6 +2,25 @@ import Foundation
 import Darwin
 
 struct LocalProcess {
+    static func readOutput(_ handle: FileHandle) async throws -> Data? {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                do { continuation.resume(returning: try handle.read(upToCount: 65_536)) }
+                catch { continuation.resume(throwing: error) }
+            }
+        }
+    }
+
+    static func waitForExit(_ pid: Int32) async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                var info = siginfo_t()
+                while waitid(P_PID, UInt32(pid), &info, WEXITED | WNOWAIT) == -1 && errno == EINTR {}
+                continuation.resume()
+            }
+        }
+    }
+
     static func environment() async throws -> [String: String] {
         try await Task.detached {
             let process = Process()
@@ -68,7 +87,14 @@ struct LocalProcess {
         posix_spawn_file_actions_init(&actions)
         posix_spawnattr_init(&attributes)
         defer { posix_spawn_file_actions_destroy(&actions); posix_spawnattr_destroy(&attributes) }
-        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT))
+        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK))
+        var defaults = sigset_t()
+        sigemptyset(&defaults)
+        for signal in [SIGTERM, SIGINT, SIGHUP, SIGPIPE] { sigaddset(&defaults, signal) }
+        posix_spawnattr_setsigdefault(&attributes, &defaults)
+        var mask = sigset_t()
+        sigemptyset(&mask)
+        posix_spawnattr_setsigmask(&attributes, &mask)
         posix_spawnattr_setpgroup(&attributes, 0)
         posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0)
         posix_spawn_file_actions_adddup2(&actions, serviceOutput.fileHandleForWriting.fileDescriptor, STDOUT_FILENO)

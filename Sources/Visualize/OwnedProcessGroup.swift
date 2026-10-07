@@ -7,10 +7,20 @@ struct OwnedProcessGroup: Sendable {
     let microseconds: UInt64
 
     static func capture(_ pid: Int32) -> Self? {
-        guard pid > 1, pid != getpgrp(), getpgid(pid) == pid else { return nil }
+        guard pid > 1, pid != getpgrp() else { return nil }
         var info = proc_bsdinfo()
-        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size)) == MemoryLayout<proc_bsdinfo>.size else { return nil }
-        return Self(pid: pid, seconds: info.pbi_start_tvsec, microseconds: info.pbi_start_tvusec)
+        if proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size)) == MemoryLayout<proc_bsdinfo>.size, getpgid(pid) == pid {
+            return Self(pid: pid, seconds: info.pbi_start_tvsec, microseconds: info.pbi_start_tvusec)
+        }
+        var query: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        var process = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.size
+        guard sysctl(&query, UInt32(query.count), &process, &size, nil, 0) == 0,
+              size == MemoryLayout<kinfo_proc>.size, process.kp_proc.p_pid == pid,
+              Int32(process.kp_proc.p_stat) == SZOMB, process.kp_eproc.e_pgid == pid,
+              process.kp_eproc.e_ppid == getpid() else { return nil }
+        let started = process.kp_proc.p_un.__p_starttime
+        return Self(pid: pid, seconds: UInt64(started.tv_sec), microseconds: UInt64(started.tv_usec))
     }
 
     func contains(_ owner: PortOwner) -> Bool {
@@ -25,15 +35,20 @@ struct OwnedProcessGroup: Sendable {
     }
 
     var exists: Bool {
+        errno = 0
         let bytes = proc_listpids(UInt32(PROC_PGRP_ONLY), UInt32(pid), nil, 0)
+        if bytes == 0 && errno == 0 { return false }
         guard bytes > 0 else { return !confirmedGone }
         var members = [Int32](repeating: 0, count: Int(bytes) / MemoryLayout<Int32>.size + 32)
+        errno = 0
         let count = members.withUnsafeMutableBytes { proc_listpids(UInt32(PROC_PGRP_ONLY), UInt32(pid), $0.baseAddress, Int32($0.count)) }
+        if count == 0 && errno == 0 { return false }
         guard count > 0 else { return !confirmedGone }
         return members.prefix(Int(count) / MemoryLayout<Int32>.size).contains { member in
             var info = proc_bsdinfo()
             guard member > 0 else { return false }
             guard proc_pidinfo(member, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size)) == MemoryLayout<proc_bsdinfo>.size else {
+                if errno == ESRCH { return false }
                 return kill(member, 0) == 0 || errno != ESRCH
             }
             return info.pbi_status != SZOMB
