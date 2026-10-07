@@ -442,6 +442,37 @@ describe("other ecosystems", () => {
     ]);
   });
 
+  it("matches a localhost URL against a published port range", async () => {
+    const root = folder("two-postgres-port-range", {
+      "package.json": NODE_APP,
+      ".env": "DATABASE_URL=postgres://u:p@localhost:5441/x\n",
+      "docker-compose.yml": compose({
+        primary: ["image: postgres:16", 'ports: ["5432:5432"]'],
+        analytics: ["image: postgres:16", 'ports: ["5440-5441:5440-5441"]'],
+      }),
+    });
+    expect((await links(root)).find(({ providedBy }) => providedBy === "compose:analytics")).toEqual({
+      kind: "postgres",
+      usedBy: [],
+      providedBy: "compose:analytics",
+      host: "localhost",
+      port: 5441,
+    });
+  });
+
+  it("does not link a localhost URL in a compose service's environment to a published port", async () => {
+    const root = folder("container-localhost", {
+      "docker-compose.yml": compose({
+        api: ["image: node:22", "environment:", "  DATABASE_URL: postgres://u:p@localhost:5432/x"],
+        db: ["image: postgres:16", 'ports: ["5432:5432"]'],
+      }),
+    });
+    expect(await links(root)).toEqual([
+      { kind: "postgres", usedBy: [], providedBy: "compose:db", host: null, port: null },
+      { kind: "postgres", usedBy: ["compose:api"], providedBy: null, host: "localhost", port: 5432 },
+    ]);
+  });
+
   it("leaves a localhost URL unlinked when no compose service publishes its port", async () => {
     const root = folder("two-postgres-localhost-unpublished", {
       "package.json": NODE_APP,

@@ -78,6 +78,17 @@ function portMappings(service: ComposeService): ScanPortMapping[] {
   return service.ports.flatMap((spec) => toPortMapping(spec) ?? []);
 }
 
+function publishedHostPorts(ports: ScanPortMapping[]): number[] {
+  return ports.flatMap(({ host }) => {
+    const range = host?.match(/^(\d{1,5})(?:-(\d{1,5}))?$/);
+    if (!range) return [];
+    const start = Number(range[1]);
+    const end = Number(range[2] ?? range[1]);
+    if (start < 1 || start > end || end > 65535) return [];
+    return Array.from({ length: end - start + 1 }, (_, offset) => start + offset);
+  });
+}
+
 function containerPort(ports: ScanPortMapping[]): number | null {
   const first = ports[0]?.container;
   return first && /^\d+$/.test(first) ? Number(first) : null;
@@ -257,9 +268,7 @@ async function composeService(
         name: service.name,
         image: service.image ?? null,
         environment: service.environment,
-        hostPorts: portMappings(service).flatMap(({ host }) =>
-          host && /^\d+$/.test(host) ? [Number(host)] : [],
-        ),
+        hostPorts: publishedHostPorts(portMappings(service)),
       },
     },
   };

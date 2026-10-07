@@ -30,6 +30,7 @@ interface Finding extends Endpoint {
 
 interface Signal extends Finding {
   serviceIds: string[];
+  inContainer: boolean;
 }
 
 interface Provider {
@@ -306,7 +307,7 @@ function groupSignals(signals: Signal[], providers: Provider[]): Group[] {
     const key = `${host}:${signal.port ?? ""}`;
     const group =
       providerGroups.find((candidate) => candidate.provider!.name === host) ??
-      (isLoopback(host) ? loopbackProvider(providerGroups, signal.port) : undefined) ??
+      (isLoopback(host) && !signal.inContainer ? loopbackProvider(providerGroups, signal.port) : undefined) ??
       endpointGroups.get(key) ??
       endpointGroups.set(key, { endpoint: NO_ENDPOINT, signals: [] }).get(key)!;
     if (group.endpoint.host === null) group.endpoint = { host, port: signal.port };
@@ -361,7 +362,7 @@ export async function detectInfra(reader: ProjectReader, sources: InfraSource[])
 
   const directorySignals = await Promise.all(
     [...servicesByDirectory].map(async ([directory, serviceIds]) =>
-      (await directoryFindings(reader, directory)).map((found) => ({ ...found, serviceIds })),
+      (await directoryFindings(reader, directory)).map((found) => ({ ...found, serviceIds, inContainer: false })),
     ),
   );
   const composeSignals = sources.flatMap(({ serviceId, compose }) =>
@@ -369,7 +370,7 @@ export async function detectInfra(reader: ProjectReader, sources: InfraSource[])
       ? envFindings(
           Object.entries(compose.environment).map(([key, value]) => ({ key, value })),
           `compose service ${compose.name}`,
-        ).map((found) => ({ ...found, serviceIds: [serviceId] }))
+        ).map((found) => ({ ...found, serviceIds: [serviceId], inContainer: true }))
       : [],
   );
   const signals: Signal[] = [...directorySignals.flat(), ...composeSignals];
