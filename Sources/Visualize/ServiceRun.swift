@@ -7,6 +7,11 @@ final class ServiceRun {
     let recipe: RunRecipe
     var status = "Starting"
     var pid: Int32?
+    var group: OwnedProcessGroup?
+    var stopping = false
+    var leaderReaped = false
+    var runningID: UUID?
+    var launchEnvironment: [String: String] = [:]
     var portReady = false
     var output = Data()
     var active = true

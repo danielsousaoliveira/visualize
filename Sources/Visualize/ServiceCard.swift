@@ -6,6 +6,7 @@ struct ServiceCard: View {
     let project: Project
     @State private var pendingRecipe: RunRecipe?
     @State private var showConfirmation = false
+    @State private var confirmingRestart = false
 
     let service: ScanService
     let environment: ScanEnvRequirement?
@@ -20,11 +21,20 @@ struct ServiceCard: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text(service.name).font(.headline)
                     Spacer()
+                    if let run = appState.serviceRuns[appState.runKey(project: project, service: service)], run.active {
+                        Button("Stop", systemImage: "stop.fill") {
+                            Task { await appState.stop(project: project, service: service) }
+                        }.disabled(run.stopping || run.pid == nil)
+                        Button("Restart", systemImage: "arrow.clockwise") {
+                            Task { await appState.restart(project: project, service: service) }
+                        }.disabled(run.stopping || run.pid == nil)
+                    }
                     Button("Play", systemImage: "play.fill") {
                         guard let recipe = appState.recipe(project: project, service: service) else { return }
                         if appState.approved(recipe, project: project) {
                             Task { await appState.start(project: project, service: service, recipe: recipe) }
                         } else {
+                            confirmingRestart = false
                             pendingRecipe = recipe
                             showConfirmation = true
                         }
@@ -44,6 +54,16 @@ struct ServiceCard: View {
                             .foregroundStyle(run?.portReady == true ? .green : .secondary)
                     }
                 }.font(.callout)
+                if let run, let current = appState.recipe(project: project, service: service),
+                   current.approvalKey != run.recipe.approvalKey {
+                    Text("The dev command has changed. Restart uses the command recorded at launch.")
+                        .font(.callout).foregroundStyle(.secondary)
+                    Button("Restart with new command") {
+                        pendingRecipe = current
+                        confirmingRestart = true
+                        showConfirmation = true
+                    }.disabled(run.stopping || run.pid == nil)
+                }
                 if let command = service.devCommand {
                     ScrollView(.horizontal) {
                         Text(command.argv.map(shellArgument).joined(separator: " "))
@@ -91,7 +111,13 @@ struct ServiceCard: View {
                     Button("Cancel") { showConfirmation = false }.keyboardShortcut(.cancelAction)
                     Button("Run") {
                         if let recipe = pendingRecipe {
-                            Task { await appState.start(project: project, service: service, recipe: recipe) }
+                            Task {
+                                if confirmingRestart {
+                                    await appState.restart(project: project, service: service, recipe: recipe)
+                                } else {
+                                    await appState.start(project: project, service: service, recipe: recipe)
+                                }
+                            }
                         }
                         showConfirmation = false
                     }.keyboardShortcut(.defaultAction)
