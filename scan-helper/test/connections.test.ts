@@ -149,6 +149,86 @@ describe("env URL matching", () => {
     });
   });
 
+  it("warns and adds no edge when the URL port is not one the named service listens on", async () => {
+    const root = folder("wrong-app-port", {
+      ...PNPM_ROOT,
+      "apps/web/package.json": nodeApp("web", 3000),
+      "apps/web/.env": "API_URL=http://api:9999\n",
+      "apps/api/package.json": nodeApp("api", 4000),
+    });
+    expect(await connectionsOf(root)).toEqual({
+      connections: [],
+      warnings: [
+        'Service "web": API_URL points at api:9999, but api listens on 4000; the connection is left out.',
+      ],
+    });
+  });
+
+  it("checks a compose target's container ports, not its published ones", async () => {
+    const root = folder("wrong-container-port", {
+      "docker-compose.yml": [
+        "services:",
+        "  worker:",
+        "    image: node:22",
+        "    environment:",
+        "      API_URL: http://api:8080",
+        "      ADMIN_URL: http://api:9090",
+        "  api:",
+        "    image: node:22",
+        "    ports:",
+        '      - "9090:8080"',
+      ].join("\n"),
+    });
+    expect(await connectionsOf(root)).toEqual({
+      connections: [{ from: "compose:worker", to: "compose:api", kind: "env-url", label: "API_URL" }],
+      warnings: [
+        'Service "worker": ADMIN_URL points at api:9090, but api listens on 8080; the connection is left out.',
+      ],
+    });
+  });
+
+  it("resolves only the value that wins for each compose variable", async () => {
+    const root = folder("compose-precedence", {
+      "docker-compose.yml": [
+        "services:",
+        "  worker:",
+        "    image: node:22",
+        "    env_file: [./base.env, ./override.env]",
+        "    environment:",
+        "      API_URL: http://api:4000",
+        "  api:",
+        "    image: node:22",
+        "  old:",
+        "    image: node:22",
+        "  queue:",
+        "    image: node:22",
+        "  stale:",
+        "    image: node:22",
+      ].join("\n"),
+      "base.env": "API_URL=http://old:5000\nQUEUE_URL=http://stale:6000\n",
+      "override.env": "QUEUE_URL=http://queue:6000\n",
+    });
+    expect((await connectionsOf(root)).connections).toEqual([
+      { from: "compose:worker", to: "compose:api", kind: "env-url", label: "API_URL" },
+      { from: "compose:worker", to: "compose:queue", kind: "env-url", label: "QUEUE_URL" },
+    ]);
+  });
+
+  it("lets a real env file override the example and .env.local override .env", async () => {
+    const root = folder("local-precedence", {
+      ...PNPM_ROOT,
+      "apps/web/package.json": nodeApp("web", 3000),
+      "apps/web/.env.example": "API_URL=http://localhost:9999\n",
+      "apps/web/.env": "API_URL=http://localhost:9998\n",
+      "apps/web/.env.local": "API_URL=http://localhost:4000\n",
+      "apps/api/package.json": nodeApp("api", 4000),
+    });
+    expect(await connectionsOf(root)).toEqual({
+      connections: [{ from: "apps/web", to: "apps/api", kind: "env-url", label: "API_URL" }],
+      warnings: [],
+    });
+  });
+
   it("warns about a dotless host that names no service", async () => {
     const root = folder("unknown-hostname", {
       "package.json": nodeApp("svc", 3000),

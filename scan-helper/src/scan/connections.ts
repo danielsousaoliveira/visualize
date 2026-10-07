@@ -10,6 +10,7 @@ export interface ConnectionComposeSource {
   dependsOn: string[];
   environment: Record<string, string>;
   hostPorts: number[];
+  containerPorts: number[];
   envFiles: string[];
 }
 
@@ -52,9 +53,22 @@ async function readEnvValues(reader: ProjectReader, paths: string[]): Promise<En
   return contents.flatMap((content) => (content === undefined ? [] : parseEnvFile(content)));
 }
 
-function envFilesOf(service: ScanService, compose: ConnectionComposeSource | undefined): string[] {
+function envFilesByPrecedence(service: ScanService, compose: ConnectionComposeSource | undefined): string[] {
   if (compose) return compose.envFiles;
-  return [...REAL_ENV_FILES, ...EXAMPLE_ENV_FILES].map((name) => posix.join(service.rootDirectory, name));
+  return [...EXAMPLE_ENV_FILES, ...REAL_ENV_FILES].map((name) => posix.join(service.rootDirectory, name));
+}
+
+async function effectiveEnv(
+  reader: ProjectReader,
+  service: ScanService,
+  compose: ConnectionComposeSource | undefined,
+): Promise<EnvValue[]> {
+  const byKey = new Map<string, string>();
+  for (const { key, value } of await readEnvValues(reader, envFilesByPrecedence(service, compose))) {
+    byKey.set(key, value);
+  }
+  for (const [key, value] of Object.entries(compose?.environment ?? {})) byKey.set(key, value);
+  return [...byKey].map(([key, value]) => ({ key, value }));
 }
 
 async function packageJsonOf(
@@ -83,7 +97,8 @@ type Resolution =
   | { kind: "target"; id: string }
   | { kind: "none" }
   | { kind: "unresolved"; address: string }
-  | { kind: "ambiguous"; address: string; ids: string[] };
+  | { kind: "ambiguous"; address: string; ids: string[] }
+  | { kind: "wrong-port"; address: string; name: string; ports: number[] };
 
 const NONE: Resolution = { kind: "none" };
 
@@ -97,6 +112,17 @@ function hostName(node: Node): string {
   return (node.compose?.name ?? node.name).toLowerCase();
 }
 
+function listeningPorts(node: Node): number[] {
+  if (node.compose) return node.compose.containerPorts;
+  return node.port === null ? [] : [node.port];
+}
+
+function byName(target: string, port: number | null, node: Node): Resolution {
+  const ports = listeningPorts(node);
+  if (port === null || ports.length === 0 || ports.includes(port)) return { kind: "target", id: node.id };
+  return { kind: "wrong-port", address: target, name: node.name, ports };
+}
+
 function resolveUrl(source: Node, nodes: Node[], infra: ScanInfra[], { key, value }: EnvValue): Resolution {
   const { host, port } = urlEndpoint(value);
   if (host === null) return NONE;
@@ -107,9 +133,12 @@ function resolveUrl(source: Node, nodes: Node[], infra: ScanInfra[], { key, valu
 
   if (isLoopback(host) && source.compose) return single(target, infraIds(), () => NONE);
   if (!isLoopback(host)) {
-    const named = others.filter((node) => hostName(node) === host.toLowerCase()).map((node) => node.id);
+    const named = others.filter((node) => hostName(node) === host.toLowerCase());
+    if (named.length === 1) return byName(target, port, named[0]!);
     const expectedInScan = !host.includes(".") || envInfra(key, value) !== undefined;
-    return single(target, named, () => single(target, infraIds(), () => (expectedInScan ? unresolved : NONE)));
+    return single(target, named.map((node) => node.id), () =>
+      single(target, infraIds(), () => (expectedInScan ? unresolved : NONE)),
+    );
   }
 
   if (port !== null && source.port === port) return NONE;
@@ -127,6 +156,8 @@ function resolutionWarning(service: string, key: string, resolution: Resolution)
       return `Service "${service}": ${key} points at ${resolution.address}, which matches nothing in the scan; the connection is left out.`;
     case "ambiguous":
       return `Service "${service}": ${key} points at ${resolution.address}, which matches ${resolution.ids.join(", ")}; the connection is left out.`;
+    case "wrong-port":
+      return `Service "${service}": ${key} points at ${resolution.address}, but ${resolution.name} listens on ${resolution.ports.join(", ")}; the connection is left out.`;
     default:
       return undefined;
   }
@@ -177,11 +208,7 @@ export async function detectConnections(
       connect(node.id, target.id, "depends_on", "depends_on");
     }
 
-    const envValues = [
-      ...Object.entries(compose?.environment ?? {}).map(([key, value]) => ({ key, value })),
-      ...(await readEnvValues(reader, envFilesOf(service, compose))),
-    ];
-    for (const envValue of envValues) {
+    for (const envValue of await effectiveEnv(reader, service, compose)) {
       if (!URL_VALUE.test(envValue.value)) continue;
       const resolution = resolveUrl(node, nodes, infra, envValue);
       if (resolution.kind === "target") connect(node.id, resolution.id, "env-url", envValue.key);

@@ -80,15 +80,21 @@ function portMappings(service: ComposeService): ScanPortMapping[] {
   return service.ports.flatMap((spec) => toPortMapping(spec) ?? []);
 }
 
+function portRange(value: string | null): number[] {
+  const range = value?.match(/^(\d{1,5})(?:-(\d{1,5}))?$/);
+  if (!range) return [];
+  const start = Number(range[1]);
+  const end = Number(range[2] ?? range[1]);
+  if (start < 1 || start > end || end > 65535) return [];
+  return Array.from({ length: end - start + 1 }, (_, offset) => start + offset);
+}
+
 function publishedHostPorts(ports: ScanPortMapping[]): number[] {
-  return ports.flatMap(({ host }) => {
-    const range = host?.match(/^(\d{1,5})(?:-(\d{1,5}))?$/);
-    if (!range) return [];
-    const start = Number(range[1]);
-    const end = Number(range[2] ?? range[1]);
-    if (start < 1 || start > end || end > 65535) return [];
-    return Array.from({ length: end - start + 1 }, (_, offset) => start + offset);
-  });
+  return ports.flatMap(({ host }) => portRange(host));
+}
+
+function containerPorts(ports: ScanPortMapping[]): number[] {
+  return ports.flatMap(({ container }) => portRange(container));
 }
 
 function containerPort(ports: ScanPortMapping[]): number | null {
@@ -283,6 +289,7 @@ async function composeService(
         dependsOn: service.dependsOn,
         environment: service.environment,
         hostPorts,
+        containerPorts: containerPorts(portMappings(service)),
         envFiles: envFiles.map(({ path }) => path),
       },
     },
