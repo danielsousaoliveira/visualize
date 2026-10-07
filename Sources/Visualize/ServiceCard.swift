@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct ServiceCard: View {
+    @Environment(AppState.self) private var appState
+
     let service: ScanService
     let environment: ScanEnvRequirement?
 
@@ -34,8 +36,8 @@ struct ServiceCard: View {
                 }
                 HStack(spacing: 8) {
                     RunModeChip(title: "Local", available: service.runModes.local.available, reason: service.runModes.local.reason)
-                    RunModeChip(title: "Compose", available: service.runModes.compose.available, reason: service.runModes.compose.reason)
-                    RunModeChip(title: "Dockerfile", available: service.runModes.dockerfile.available, reason: service.runModes.dockerfile.reason)
+                    RunModeChip(title: "Compose", available: service.runModes.compose.available && appState.dockerState.unavailableReason(compose: true) == nil, reason: appState.dockerState.unavailableReason(compose: true) ?? service.runModes.compose.reason)
+                    RunModeChip(title: "Dockerfile", available: service.runModes.dockerfile.available && appState.dockerState.unavailableReason() == nil, reason: appState.dockerState.unavailableReason() ?? service.runModes.dockerfile.reason)
                 }
                 if environment == nil {
                     Text("Env status unavailable — rescan to check").font(.callout).foregroundStyle(.secondary)
