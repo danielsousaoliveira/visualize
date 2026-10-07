@@ -23,7 +23,7 @@ final class AppState {
         (UserDefaults.standard.stringArray(forKey: "approvedCommands.\(project.id)") ?? []).contains(recipe.approvalKey)
     }
 
-    func start(project: Project, service: ScanService, recipe: RunRecipe) async {
+    func start(project: Project, service: ScanService, recipe: RunRecipe, storedEnvironment: [String: String]? = nil) async {
         let key = runKey(project: project, service: service)
         guard serviceRuns[key]?.active != true else { return }
         let run = ServiceRun(recipe: recipe)
@@ -32,21 +32,26 @@ final class AppState {
             let capture = loginEnvironment
             let environment: [String: String]
             do {
-                environment = try await capture.value
+                if let storedEnvironment { environment = storedEnvironment }
+                else { environment = try await capture.value }
             } catch {
                 if loginEnvironment == capture {
                     loginEnvironment = Task { try await LocalProcess.environment() }
                 }
                 throw error
             }
+            guard run.active, serviceRuns[key] === run else { return }
             let recorded = RunRecipe(argv: recipe.argv, workingDirectory: recipe.workingDirectory, addedEnvironmentKeys: environment.keys.filter { ProcessInfo.processInfo.environment[$0] == nil }.sorted(), startedAt: Date())
             let actual = ServiceRun(recipe: recorded)
             serviceRuns[key] = actual
             let (pid, output) = try LocalProcess.start(recorded, environment: environment)
             ownedGroups.insert(pid)
             actual.pid = pid
+            actual.group = OwnedProcessGroup.capture(pid)
+            actual.launchEnvironment = environment
             actual.status = "Running (pid \(pid))"
             let runningID = UUID()
+            actual.runningID = runningID
             runningServices.append(RunningService(id: runningID, name: service.name))
             let approvalStore = "approvedCommands.\(project.id)"
             var approvals = UserDefaults.standard.stringArray(forKey: approvalStore) ?? []
@@ -63,6 +68,11 @@ final class AppState {
             }
             Task.detached {
                 var status: Int32 = 0
+                var exitInfo = siginfo_t()
+                while waitid(P_PID, UInt32(pid), &exitInfo, WEXITED | WNOWAIT) == -1 && errno == EINTR {}
+                if let group = await actual.group {
+                    while group.exists { try? await Task.sleep(for: .milliseconds(100)) }
+                }
                 while waitpid(pid, &status, 0) == -1 && errno == EINTR {}
                 let code = status & 0x7f == 0 ? (status >> 8) & 0xff : 128 + (status & 0x7f)
                 await self.finished(actual, code: code, runningID: runningID)
@@ -85,8 +95,9 @@ final class AppState {
     private func releaseGroup(_ pid: Int32) { ownedGroups.remove(pid) }
 
     private func finished(_ run: ServiceRun, code: Int32, runningID: UUID) {
+        run.leaderReaped = true
         run.active = false
-        run.status = "Exited (\(code))"
+        if !run.stopping { run.status = "Exited (\(code))" }
         run.portReady = false
         runningServices.removeAll { $0.id == runningID }
     }
@@ -96,14 +107,44 @@ final class AppState {
         return !ownedGroups.isEmpty
     }
 
+    func stop(project: Project, service: ScanService) async {
+        guard let run = serviceRuns[runKey(project: project, service: service)] else { return }
+        await stop(run)
+    }
+
+    private func stop(_ run: ServiceRun) async {
+        if run.stopping {
+            while run.stopping { try? await Task.sleep(for: .milliseconds(50)) }
+            return
+        }
+        guard run.active else { return }
+        run.stopping = true
+        run.status = "Stopping…"
+        if let group = run.group {
+            let stopped = await Task.detached { await group.stop() }.value
+            if stopped {
+                while !run.leaderReaped { try? await Task.sleep(for: .milliseconds(50)) }
+            }
+            ownedGroups.remove(group.pid)
+        }
+        if let id = run.runningID { runningServices.removeAll { $0.id == id } }
+        run.active = false
+        run.stopping = false
+        run.portReady = false
+        run.status = "Exited"
+    }
+
+    func restart(project: Project, service: ScanService, recipe: RunRecipe? = nil) async {
+        guard let run = serviceRuns[runKey(project: project, service: service)], !run.stopping else { return }
+        await stop(run)
+        await start(project: project, service: service, recipe: recipe ?? run.recipe, storedEnvironment: run.launchEnvironment)
+    }
+
     func stopForQuit() async {
-        let groups = ownedGroups.filter { kill(-$0, 0) == 0 }
-        for pid in groups { kill(-pid, SIGTERM) }
-        try? await Task.sleep(for: .seconds(2))
-        for pid in groups where kill(-pid, 0) == 0 { kill(-pid, SIGKILL) }
-        let deadline = Date().addingTimeInterval(2)
-        while groups.contains(where: { kill(-$0, 0) == 0 }) && Date() < deadline {
-            try? await Task.sleep(for: .milliseconds(50))
+        await withTaskGroup(of: Void.self) { group in
+            for run in serviceRuns.values where run.active {
+                group.addTask { await self.stop(run) }
+            }
         }
     }
     var selection: Project.ID?
