@@ -3,6 +3,10 @@ import SwiftUI
 struct ServiceCard: View {
     @Environment(AppState.self) private var appState
 
+    let project: Project
+    @State private var pendingRecipe: RunRecipe?
+    @State private var showConfirmation = false
+
     let service: ScanService
     let environment: ScanEnvRequirement?
 
@@ -16,12 +20,30 @@ struct ServiceCard: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text(service.name).font(.headline)
                     Spacer()
+                    Button("Play", systemImage: "play.fill") {
+                        guard let recipe = appState.recipe(project: project, service: service) else { return }
+                        if appState.approved(recipe, project: project) {
+                            Task { await appState.start(project: project, service: service, recipe: recipe) }
+                        } else {
+                            pendingRecipe = recipe
+                            showConfirmation = true
+                        }
+                    }
+                    .disabled(!service.runModes.local.available || service.devCommand == nil || appState.serviceRuns[appState.runKey(project: project, service: service)]?.active == true)
                     Text(service.rootDirectory).font(.callout.monospaced()).foregroundStyle(.secondary)
                 }
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 20) { metadata }
                     VStack(alignment: .leading, spacing: 6) { metadata }
                 }
+                let run = appState.serviceRuns[appState.runKey(project: project, service: service)]
+                HStack {
+                    Text(run?.status ?? "Stopped")
+                    if let port = service.port {
+                        Label(run?.portReady == true ? "Port \(port) listening" : "Port \(port) waiting", systemImage: run?.portReady == true ? "circle.fill" : "circle")
+                            .foregroundStyle(run?.portReady == true ? .green : .secondary)
+                    }
+                }.font(.callout)
                 if let command = service.devCommand {
                     ScrollView(.horizontal) {
                         Text(command.argv.map(shellArgument).joined(separator: " "))
@@ -58,6 +80,23 @@ struct ServiceCard: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(8)
+        }
+        .sheet(isPresented: $showConfirmation) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Run this command?").font(.title2)
+                Text(pendingRecipe?.displayCommand ?? "").font(.body.monospaced()).textSelection(.enabled)
+                Text(pendingRecipe?.workingDirectory ?? "").font(.callout.monospaced()).textSelection(.enabled)
+                HStack {
+                    Spacer()
+                    Button("Cancel") { showConfirmation = false }.keyboardShortcut(.cancelAction)
+                    Button("Run") {
+                        if let recipe = pendingRecipe {
+                            Task { await appState.start(project: project, service: service, recipe: recipe) }
+                        }
+                        showConfirmation = false
+                    }.keyboardShortcut(.defaultAction)
+                }
+            }.padding(24).frame(minWidth: 480)
         }
     }
 

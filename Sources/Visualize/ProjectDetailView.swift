@@ -47,7 +47,7 @@ struct ProjectDetailView: View {
                     if !result.services.isEmpty {
                         sectionTitle("Services", count: result.services.count)
                         ForEach(result.services) { service in
-                            ServiceCard(service: service, environment: result.envRequirements.first { $0.serviceId == service.id })
+                            ServiceCard(project: project, service: service, environment: result.envRequirements.first { $0.serviceId == service.id })
                         }
                     }
                     if !result.infra.isEmpty {
