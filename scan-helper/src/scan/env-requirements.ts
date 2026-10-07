@@ -84,14 +84,15 @@ export async function detectEnvRequirements(
       const inDirectories = (names: string[]) =>
         unique(directories.flatMap((dir) => names.map((name) => posix.join(dir, name))));
       const realPaths = inDirectories(REAL_ENV_FILES);
-      const composeFiles = composeEnvFiles.filter(({ path }) => !realPaths.includes(path));
+      const composePaths = unique(composeEnvFiles.map(({ path }) => path));
       const files = await Promise.all([
         ...inDirectories(EXAMPLE_ENV_FILES).map((path) => read(path, true)),
-        ...[...realPaths, ...composeFiles.map(({ path }) => path)].map((path) => read(path, false)),
+        ...unique([...realPaths, ...composePaths]).map((path) => read(path, false)),
       ]);
-      const notFound = composeFiles
-        .filter(({ path, required }) => required && !files.find((file) => file.path === path)?.parsed)
-        .map(({ path }) => `Service "${serviceName}": env_file ${path} was not found.`);
+      const required = unique(composeEnvFiles.filter((file) => file.required).map(({ path }) => path));
+      const notFound = required
+        .filter((path) => !files.find((file) => file.path === path)?.parsed)
+        .map((path) => `Service "${serviceName}": env_file ${path} was not found.`);
       return { requirement: { serviceId, variables: toVariables(files) }, warnings: notFound };
     }),
   );

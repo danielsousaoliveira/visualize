@@ -109,6 +109,25 @@ describe("env files the scan cannot fully read", () => {
     expect(warnings).toEqual(['Service "web": env_file missing.env was not found.']);
   });
 
+  it("reports an unterminated quoted value as missing", async () => {
+    const root = folder("unterminated", {
+      "package.json": NODE_APP,
+      ".env.example": "TOKEN=\n",
+      ".env": 'TOKEN="fixture-unterminated\n',
+    });
+    const { byService, warnings } = await requirementsOf(root);
+    expect(statuses(byService["."]!)).toEqual({ TOKEN: "missing" });
+    expect(warnings).toEqual(["Env file .env, line 1, could not be parsed and was skipped."]);
+  });
+
+  it("warns about a required env_file with a standard name that does not exist, once", async () => {
+    const root = folder("missing-standard-env-file", {
+      "docker-compose.yml": "services:\n  web:\n    image: nginx\n    env_file: [./.env, .env]\n",
+    });
+    const { warnings } = await requirementsOf(root);
+    expect(warnings).toEqual(['Service "web": env_file .env was not found.']);
+  });
+
   it("does not read an env_file outside the project", async () => {
     const root = folder("outside-env-file", {
       "docker-compose.yml": "services:\n  web:\n    image: nginx\n    env_file: ../outside.env\n",
@@ -144,8 +163,19 @@ describe("env file keys", () => {
     expect(parsed.malformedLines).toEqual([4]);
   });
 
-  it("flags an unterminated quote", () => {
-    expect(envFileKeys('A=1\nB="never closed\n').malformedLines).toEqual([2]);
+  it("flags an unterminated quote and keeps its key without a value", () => {
+    const parsed = envFileKeys('A=1\nB="never closed\n');
+    expect(parsed.malformedLines).toEqual([2]);
+    expect(parsed.keys).toEqual([
+      { key: "A", hasValue: true },
+      { key: "B", hasValue: false },
+    ]);
+  });
+
+  it("leaves parseEnvFile's value for an unterminated quote unchanged", () => {
+    expect(parseEnvFile('B="never closed\n')).toEqual([
+      { key: "B", value: "never closed", interpolation: "never closed" },
+    ]);
   });
 
   it("leaves parseEnvFile entries unchanged by bare keys", () => {
