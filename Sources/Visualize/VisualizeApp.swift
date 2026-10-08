@@ -24,6 +24,10 @@ struct VisualizeApp: App {
             LibraryCommands(appState: appState)
         }
 
+        Settings {
+            AppSettingsView().environment(appState)
+        }
+
         MenuBarExtra {
             MenuBarPopover()
                 .environment(appState)

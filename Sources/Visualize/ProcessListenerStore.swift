@@ -5,6 +5,7 @@ import Foundation
 final class ProcessListenerStore {
     private(set) var listeners: [ProcessListener] = []
     private(set) var lastScan: Date?
+    var scanInterval = 2
     var lowerPort = 1024
     var upperPort = 65535
     private(set) var actionError: String?
@@ -22,6 +23,7 @@ final class ProcessListenerStore {
         self.dockerOwnership = dockerOwnership
         dockerTask = Task { [weak self] in
             while !Task.isCancelled {
+                let cycleStarted = ContinuousClock.now
                 do {
                     guard let self else { return }
                     let override = dockerOverride()
@@ -31,11 +33,12 @@ final class ProcessListenerStore {
                     containers = result
                     merge(projects: projects(), ownedAttribution: ownedAttribution)
                 }
-                try? await Task.sleep(for: .seconds(5))
+                await self?.waitForNextScan(since: cycleStarted)
             }
         }
         task = Task { [weak self] in
             while !Task.isCancelled {
+                let cycleStarted = ContinuousClock.now
                 do {
                     guard let self else { return }
                     let currentProjects = projects()
@@ -54,9 +57,22 @@ final class ProcessListenerStore {
                     merge(projects: projects(), ownedAttribution: ownedAttribution)
                     lastScan = Date()
                 }
-                try? await Task.sleep(for: .seconds(1))
+                await self?.waitForNextScan(since: cycleStarted)
             }
         }
+    }
+
+    private func waitForNextScan(since started: ContinuousClock.Instant) async {
+        while !Task.isCancelled, started.duration(to: .now) < .seconds(scanInterval) {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+    }
+
+    func configure(interval: Int, lower: Int, upper: Int) {
+        scanInterval = interval
+        lowerPort = lower
+        upperPort = upper
+        listeners.removeAll { !(lower...upper).contains($0.port) }
     }
 
     func stop() {

@@ -9,6 +9,7 @@ final class AppState {
     private var releaseOperations: [UUID: ReleaseOperation] = [:]
     private var graphModels: [UUID: ServiceGraphModel] = [:]
     let listenerStore = ProcessListenerStore()
+    let settings = AppSettings()
     var runningServices: [RunningService] = []
     private(set) var serviceLogs: [String: ServiceLog] = [:]
     private(set) var serviceRuns: [String: ServiceRun] = [:]
@@ -40,7 +41,7 @@ final class AppState {
         let root = store.fileURL.deletingLastPathComponent().appending(path: "Logs/\(project.id.uuidString)")
         let digest = SHA256.hash(data: Data(service.id.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
         let filename = "\(DockerRun.slug(service.name).prefix(40))-\(digest)"
-        let log = ServiceLog(fileURL: root.appending(path: "\(filename).log"))
+        let log = ServiceLog(fileURL: root.appending(path: "\(filename).log"), retentionMB: settings.logRetentionMB)
         serviceLogs[key] = log
         return log
     }
@@ -366,8 +367,8 @@ final class AppState {
     private(set) var dockerState: DockerState = .checking
     private(set) var isCheckingDocker = false
     var dockerOverridePath: String? {
-        get { UserDefaults.standard.string(forKey: "dockerOverridePath") }
-        set { UserDefaults.standard.set(newValue, forKey: "dockerOverridePath") }
+        get { settings.dockerPath.isEmpty ? nil : settings.dockerPath }
+        set { settings.setDockerPath(newValue ?? "") }
     }
 
     func checkDocker() async {
@@ -375,7 +376,11 @@ final class AppState {
         isCheckingDocker = true
         dockerState = .checking
         defer { isCheckingDocker = false }
-        dockerState = await DockerChecker().check(overridePath: dockerOverridePath)
+        repeat {
+            let path = dockerOverridePath
+            let result = await DockerChecker().check(overridePath: path)
+            if path == dockerOverridePath { dockerState = result; break }
+        } while true
     }
 
     private let scanHelper: ScanHelper
@@ -393,8 +398,16 @@ final class AppState {
         }
         self.scanHelper = scanHelper
         self.store = store
+        settings.onChange = { [weak self] in self?.applySettings() }
+        applySettings()
         loadLibrary()
         listenerStore.start(dockerOwnership: self.dockerOwnership, projects: { [weak self] in self?.projects ?? [] }, ownedAttribution: { [weak self] in self?.ownedAttribution($0) }, dockerOverride: { [weak self] in self?.dockerOverridePath })
+    }
+
+    private func applySettings() {
+        listenerStore.configure(interval: settings.scanInterval, lower: settings.lowerPort, upper: settings.upperPort)
+        for log in serviceLogs.values { log.writer.setRetention(megabytes: settings.logRetentionMB) }
+        Task { await checkDocker() }
     }
 
     var selectedProject: Project? {

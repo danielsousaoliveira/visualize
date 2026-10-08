@@ -4,12 +4,33 @@ import Darwin
 final class LogFileWriter: @unchecked Sendable {
     let url: URL
     private let queue = DispatchQueue(label: "visualize.log-file")
-    private let limit: Int
+    private var limit: Int
     private var failure: String?
 
     init(url: URL, limit: Int = 10_000_000) {
         self.url = url
         self.limit = limit
+    }
+
+    func setRetention(megabytes: Int) {
+        queue.async { [self] in
+            limit = megabytes * 1_000_000 / 4
+            do {
+                for index in 0...3 {
+                    let path = index == 0 ? url.path : "\(url.path).\(index)"
+                    try verifyRegularFile(path)
+                    let descriptor = open(path, O_WRONLY | O_NOFOLLOW)
+                    if descriptor < 0 {
+                        if errno == ENOENT { continue }
+                        throw systemError()
+                    }
+                    defer { close(descriptor) }
+                    var metadata = stat()
+                    guard fstat(descriptor, &metadata) == 0, (metadata.st_mode & S_IFMT) == S_IFREG else { throw fileError("Log path is not a regular file") }
+                    if metadata.st_size > limit, ftruncate(descriptor, off_t(limit)) != 0 { throw systemError() }
+                }
+            } catch { failure = error.localizedDescription }
+        }
     }
 
     func append(_ data: Data) {
