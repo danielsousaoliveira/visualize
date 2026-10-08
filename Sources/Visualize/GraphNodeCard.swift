@@ -12,7 +12,7 @@ struct GraphNodeCard: View {
     private var status: Color {
         guard let run else { return .gray }
         if run.status.lowercased().contains("failed") { return .red }
-        if !run.active { return run.status == "Exited" || run.status == "Stopped" ? .gray : .red }
+        if !run.active { return ["Exited", "Exited (0)", "Stopped"].contains(run.status) ? .gray : .red }
         if run.busy || run.stopping || (run.status.hasPrefix("Starting") || (service?.port != nil && !run.portReady)) { return .orange }
         return .green
     }

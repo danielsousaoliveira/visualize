@@ -76,7 +76,10 @@ struct ProjectDetailView: View {
     private var content: some View {
         if let result = project.lastResult {
             VStack(spacing: 0) {
-                Picker("Project view", selection: $graphSelected) {
+                Picker("Project view", selection: Binding(
+                    get: { graphSelected },
+                    set: { graphSelected = $0; logServiceID = nil }
+                )) {
                     Text("Services").tag(false)
                     Text("Graph").tag(true)
                 }.pickerStyle(.segmented).padding(.horizontal, 24).padding(.top, 12)
