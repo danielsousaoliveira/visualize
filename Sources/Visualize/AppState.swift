@@ -391,7 +391,7 @@ final class AppState {
         self.scanHelper = scanHelper
         self.store = store
         loadLibrary()
-        listenerStore.start(projects: { [weak self] in self?.projects ?? [] }, ownedAttribution: { [weak self] in self?.ownedAttribution($0) }, dockerOverride: { [weak self] in self?.dockerOverridePath })
+        listenerStore.start(dockerOwnership: dockerOwnership, projects: { [weak self] in self?.projects ?? [] }, ownedAttribution: { [weak self] in self?.ownedAttribution($0) }, dockerOverride: { [weak self] in self?.dockerOverridePath })
     }
 
     var selectedProject: Project? {

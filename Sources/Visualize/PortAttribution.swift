@@ -5,11 +5,11 @@ struct PortAttribution {
         path == root || path.hasPrefix(root == "/" ? root : root + "/")
     }
 
-    static func resolve(_ listener: ProcessListener, projects: [Project]) -> ProcessListener {
+    static func resolve(_ listener: ProcessListener, projects: [Project], dockerOwnership: String? = nil) -> ProcessListener {
         var result = listener
         let directory = listener.workingDirectory.map { Project.canonicalPath(of: URL(filePath: $0)) }
         let container = listener.container
-        let owned = container?.visualizeProject != nil && container?.visualizeService != nil
+        let owned = container?.isOwned(by: dockerOwnership) == true
         let project = (owned ? projects.first { $0.id.uuidString == container?.labels["visualize.library"] } : nil)
             ?? (owned ? nil : directory.flatMap { path in projects.filter { contains($0.folderPath, path) }.max { $0.folderPath.count < $1.folderPath.count } })
         result.libraryProjectID = project?.id

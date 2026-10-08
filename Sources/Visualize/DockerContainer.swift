@@ -1,6 +1,6 @@
 import Foundation
 
-struct DockerContainer: Sendable {
+struct DockerContainer: Sendable, Equatable {
     let id: String
     let name: String
     let image: String
@@ -13,6 +13,11 @@ struct DockerContainer: Sendable {
     var workingDirectory: String? { labels["com.docker.compose.project.working_dir"] }
     var visualizeProject: String? { labels["visualize.project"] }
     var visualizeService: String? { labels["visualize.service"] }
+
+    func isOwned(by token: String?) -> Bool {
+        guard let token, !token.isEmpty else { return false }
+        return labels["visualize.owner"] == token && visualizeProject?.isEmpty == false && visualizeService?.isEmpty == false
+    }
 
     static func decode(_ data: Data) throws -> [Self] {
         let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] ?? []
@@ -35,14 +40,14 @@ struct DockerContainer: Sendable {
         }
     }
 
-    func listeners(projects: [Project]) -> [ProcessListener] {
+    func listeners(projects: [Project], dockerOwnership: String? = nil) -> [ProcessListener] {
         return ports.map { port in
             PortAttribution.resolve(ProcessListener(port: port, pid: 0, name: name, executablePath: nil,
                             workingDirectory: workingDirectory, startedAt: nil,
                             cpuPercent: nil, memoryBytes: nil,
                             projectName: visualizeProject ?? composeProject,
                             projectFolder: workingDirectory, gitBranch: nil,
-                            container: self), projects: projects)
+                            container: self), projects: projects, dockerOwnership: dockerOwnership)
         }
     }
 }

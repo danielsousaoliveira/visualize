@@ -9,6 +9,7 @@ final class ProcessListenerStore {
     var upperPort = 65535
     private(set) var actionError: String?
     private(set) var busyContainers: Set<String> = []
+    private var dockerOwnership: String?
     private var processes: [ProcessListener] = []
     private var scannedDockerOverride: String?
     private var containers: [DockerContainer] = []
@@ -16,8 +17,9 @@ final class ProcessListenerStore {
     private let monitor = ProcessListenerMonitor()
     private var task: Task<Void, Never>?
 
-    func start(projects: @escaping @MainActor () -> [Project], ownedAttribution: @escaping @MainActor (ProcessListener) -> ProcessListener? = { _ in nil }, dockerOverride: @escaping @MainActor () -> String? = { nil }) {
+    func start(dockerOwnership: String? = nil, projects: @escaping @MainActor () -> [Project], ownedAttribution: @escaping @MainActor (ProcessListener) -> ProcessListener? = { _ in nil }, dockerOverride: @escaping @MainActor () -> String? = { nil }) {
         guard task == nil else { return }
+        self.dockerOwnership = dockerOwnership
         dockerTask = Task { [weak self] in
             while !Task.isCancelled {
                 do {
@@ -68,13 +70,18 @@ final class ProcessListenerStore {
         let lower = min(65535, max(1, lowerPort))
         let upper = min(65535, max(1, upperPort))
         listeners = DockerContainerMonitor.merge(processes: processes.map { ownedAttribution($0) ?? PortAttribution.resolve($0, projects: projects) }, containers: containers, projects: projects,
-                                                 ports: lower <= upper ? lower...upper : nil)
+                                                 ports: lower <= upper ? lower...upper : nil, dockerOwnership: dockerOwnership)
     }
 
     func perform(_ action: String, container: DockerContainer, overridePath: String?) async {
         let allowedIDs = Set(listeners.compactMap { $0.container?.id }).intersection(containers.map(\.id))
         guard allowedIDs.contains(container.id), scannedDockerOverride == overridePath else {
             actionError = "Container is no longer in the displayed monitor results"
+            return
+        }
+        guard containers.first(where: { $0.id == container.id }) == container,
+              listeners.filter({ $0.container?.id == container.id }).allSatisfy({ $0.container == container }) else {
+            actionError = "Container details changed; review the current monitor entry before acting"
             return
         }
         guard action != "restart" || listeners.contains(where: { $0.container?.id == container.id && $0.startedByVisualize }) else {
@@ -84,9 +91,10 @@ final class ProcessListenerStore {
         guard busyContainers.insert(container.id).inserted else { return }
         defer { busyContainers.remove(container.id) }
         actionError = nil
+        let ownership = dockerOwnership
         do {
             try await Task.detached(priority: .utility) {
-                try DockerContainerMonitor().perform(action, containerID: container.id, allowedContainerIDs: allowedIDs, overridePath: overridePath)
+                try DockerContainerMonitor().perform(action, containerID: container.id, allowedContainerIDs: allowedIDs, overridePath: overridePath, expectedContainer: container, dockerOwnership: ownership)
             }.value
             if action == "stop" {
                 containers.removeAll { $0.id == container.id }

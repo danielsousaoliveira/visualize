@@ -37,9 +37,15 @@ struct PortAttributionTests {
         labels["visualize.project"] = "owned"
         labels["visualize.service"] = "compose:api"
         labels["visualize.library"] = project.id.uuidString
+        labels["visualize.owner"] = "installation"
         let owned = DockerContainer(id: container.id, name: container.name, image: container.image, status: container.status, ports: container.ports, labels: labels)
-        #expect(owned.listeners(projects: [project]).first?.serviceName == "api")
-        #expect(owned.listeners(projects: []).first?.startedByVisualize == true)
+        #expect(owned.listeners(projects: [project], dockerOwnership: "installation").first?.serviceName == "api")
+        #expect(owned.listeners(projects: [], dockerOwnership: "installation").first?.startedByVisualize == true)
+        #expect(owned.listeners(projects: [project]).first?.startedByVisualize == false)
+        #expect(owned.listeners(projects: [project], dockerOwnership: "another-installation").first?.startedByVisualize == false)
+        labels.removeValue(forKey: "visualize.owner")
+        let spoofed = DockerContainer(id: container.id, name: container.name, image: container.image, status: container.status, ports: container.ports, labels: labels)
+        #expect(spoofed.listeners(projects: [project], dockerOwnership: "installation").first?.startedByVisualize == false)
     }
 
     @Test func externalManifestNameAndFolderFallback() throws {
