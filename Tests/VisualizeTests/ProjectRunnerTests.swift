@@ -211,4 +211,44 @@ struct ProjectRunnerTests {
         service.runModes.local.available = false
         #expect(ProjectStartMode.local.resolve(service, remembered: .compose) == .compose)
     }
+    @Test @MainActor func widgetBulkStopLeavesUndisplayedServicesRunning() async throws {
+        let (state, original, folder) = try fixture()
+        defer {
+            state.listenerStore.stop()
+            try? FileManager.default.removeItem(at: folder)
+        }
+        var project = original
+        let portFile = folder.appending(path: "port")
+        project.lastResult?.services[0].devCommand?.argv = ["/usr/bin/perl", "-MIO::Socket::INET", "-e", "my $s = IO::Socket::INET->new(LocalAddr => '127.0.0.1', LocalPort => 0, Listen => 1) or die $!; open my $f, '>', $ARGV[0] or die $!; print $f $s->sockport; close $f; sleep 60;", portFile.path]
+        let displayed = try #require(project.lastResult?.services[0])
+        let hidden = try #require(project.lastResult?.services[1])
+        for service in [displayed, hidden] {
+            await state.start(project: project, service: service, recipe: try #require(state.recipe(project: project, service: service)), storedEnvironment: ["PATH": "/usr/bin:/bin"])
+        }
+        let displayedRun = try #require(state.serviceRuns[state.runKey(project: project, service: displayed)])
+        let hiddenRun = try #require(state.serviceRuns[state.runKey(project: project, service: hidden)])
+        defer {
+            _ = displayedRun.group?.signal(SIGKILL)
+            _ = hiddenRun.group?.signal(SIGKILL)
+        }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !FileManager.default.fileExists(atPath: portFile.path), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let port = try #require(Int(String(contentsOf: portFile, encoding: .utf8)))
+        state.listenerStore.lowerPort = port
+        state.listenerStore.upperPort = port
+        while !state.listenerStore.listeners.contains(where: { $0.pid == displayedRun.pid }), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let listener = try #require(state.listenerStore.listeners.first { $0.pid == displayedRun.pid })
+        let group = ProcessListenerGroup(id: "library:\(project.id)", name: project.name, listeners: [listener])
+        #expect(state.widgetStopManagedAvailable(group))
+        await state.widgetStopManaged(group)
+        #expect(!displayedRun.active)
+        #expect(hiddenRun.active)
+        #expect(hiddenRun.group?.exists == true)
+        await state.stopAll(project: project)
+    }
+
 }

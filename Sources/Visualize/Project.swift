@@ -5,6 +5,11 @@ struct Project: Identifiable, Hashable, Codable {
     var name: String
     var folderPath: String
     var lastResult: ScanResult?
+    var savedGraphPositions: [String: GraphPosition]?
+
+    var serviceGraph: ServiceGraph? {
+        lastResult.map { ServiceGraph(scan: $0, savedPositions: savedGraphPositions ?? [:]) }
+    }
 
     init(id: UUID = UUID(), folder: URL, lastResult: ScanResult? = nil) {
         self.id = id
