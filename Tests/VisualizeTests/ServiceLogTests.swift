@@ -52,6 +52,42 @@ struct ServiceLogTests {
         #expect(try Data(contentsOf: URL(filePath: url.path + ".3")).first == 66)
     }
 
+    @Test func refusesSymlinkedLogAndRotationFiles() async throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let target = folder.appending(path: "target")
+        try Data("keep".utf8).write(to: target)
+        let active = folder.appending(path: "service.log")
+        try FileManager.default.createSymbolicLink(at: active, withDestinationURL: target)
+        let writer = LogFileWriter(url: active, limit: 4)
+        writer.append(Data("unsafe".utf8))
+        #expect(await writer.flush() != nil)
+        #expect(try String(contentsOf: target, encoding: .utf8) == "keep")
+
+        try FileManager.default.removeItem(at: active)
+        try Data("full".utf8).write(to: active)
+        let rotatedTarget = folder.appending(path: "rotated-target")
+        try Data("untouched".utf8).write(to: rotatedTarget)
+        try FileManager.default.createSymbolicLink(atPath: active.path + ".3", withDestinationPath: rotatedTarget.path)
+        let rotatingWriter = LogFileWriter(url: active, limit: 4)
+        rotatingWriter.append(Data("trigger".utf8))
+        #expect(await rotatingWriter.flush() != nil)
+        #expect(try String(contentsOf: rotatedTarget, encoding: .utf8) == "untouched")
+    }
+
+    @Test @MainActor func reportsOutputReadFailures() async throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let log = ServiceLog(fileURL: folder.appending(path: "failure.log"))
+        let failure = OrderedOutputReader.readResult(-1, error: EBADF, isError: false)
+        #expect(failure.data == nil)
+        #expect(failure.failure != nil)
+        if let message = failure.failure { log.reportReadFailure(message, isError: failure.isError) }
+        #expect(log.error?.contains("Could not read stdout output") == true)
+        #expect(OrderedOutputReader.readResult(0, isError: false).failure == nil)
+    }
+
     @Test @MainActor func followerStreamsBothChannelsAndStopsOnClose() async throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

@@ -35,6 +35,9 @@ final class DockerLogFollower {
                             guard self.generation == token else { return }
                             if let data { log.append(data, isError: isError) }
                             else { log.finish(isError: isError) }
+                        } failed: { message, isError in
+                            guard self.generation == token else { return }
+                            log.reportReadFailure(message, isError: isError)
                         }
                     })
                 } catch { log.error = "Could not follow Docker logs: \(error.localizedDescription)" }

@@ -15,9 +15,16 @@ final class ProcessListenerStore {
         task = Task {
             while !Task.isCancelled {
                 let currentProjects = projects()
-                let range = max(1, lowerPort)...min(65535, max(lowerPort, upperPort))
-                let sampler = self.monitor
-                let results = await Task.detached(priority: .utility) { sampler.scan(ports: range, projects: currentProjects) }.value
+                let lower = min(65535, max(1, lowerPort))
+                let upper = min(65535, max(1, upperPort))
+                let results: [ProcessListener]
+                if lower > upper {
+                    results = []
+                } else {
+                    let range = lower...upper
+                    let sampler = self.monitor
+                    results = await Task.detached(priority: .utility) { sampler.scan(ports: range, projects: currentProjects) }.value
+                }
                 listeners = results
                 lastScan = Date()
                 try? await Task.sleep(for: .seconds(2))

@@ -95,6 +95,8 @@ final class AppState {
                 await OrderedOutputReader.drain(stdout: output, stderr: stderr.fileHandleForReading) { data, isError in
                     if let data { actual.append(data, isError: isError) }
                     else { log.finish(isError: isError) }
+                } failed: { message, isError in
+                    log.reportReadFailure(message, isError: isError)
                 }
                 await actual.finishOutput()
                 while kill(-pid, 0) == 0 { try? await Task.sleep(for: .milliseconds(100)) }

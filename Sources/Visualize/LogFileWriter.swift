@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 final class LogFileWriter: @unchecked Sendable {
     let url: URL
@@ -15,40 +16,69 @@ final class LogFileWriter: @unchecked Sendable {
         queue.async { [self] in
             do {
                 try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-                if !FileManager.default.fileExists(atPath: url.path) {
-                    guard FileManager.default.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw CocoaError(.fileWriteUnknown) }
-                }
+                guard !data.isEmpty else { return }
                 var offset = 0
                 while offset < data.count {
-                    if !FileManager.default.fileExists(atPath: url.path) {
-                        guard FileManager.default.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
-                            throw CocoaError(.fileWriteUnknown)
-                        }
+                    let descriptor = try openLog(create: true)
+                    defer { close(descriptor) }
+                    var metadata = stat()
+                    guard fstat(descriptor, &metadata) == 0, (metadata.st_mode & S_IFMT) == S_IFREG else { throw fileError("Log path is not a regular file") }
+                    let size = Int(metadata.st_size)
+                    if size >= limit {
+                        close(descriptor)
+                        try rotate()
+                        continue
                     }
-                    let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-                    guard let size = (attributes[.size] as? NSNumber)?.intValue else { throw CocoaError(.fileReadUnknown) }
-                    if size >= limit { try rotate(); continue }
-                    let handle = try FileHandle(forWritingTo: url)
-                    defer { try? handle.close() }
-                    try handle.seekToEnd()
-                    let end = min(data.count, offset + limit - size)
-                    try handle.write(contentsOf: data[offset..<end])
-                    offset = end
+                    guard lseek(descriptor, 0, SEEK_END) >= 0 else { throw systemError() }
+                    let count = min(data.count - offset, limit - size)
+                    let written = data.withUnsafeBytes { bytes -> Int in
+                        guard let base = bytes.baseAddress else { return 0 }
+                        return write(descriptor, base.advanced(by: offset), count)
+                    }
+                    guard written > 0 else { throw systemError() }
+                    offset += written
                 }
             } catch { failure = error.localizedDescription }
         }
     }
 
-    private func rotate() throws {
-        let manager = FileManager.default
-        let oldest = URL(filePath: url.path + ".3")
-        if manager.fileExists(atPath: oldest.path) { try manager.removeItem(at: oldest) }
-        for index in stride(from: 2, through: 0, by: -1) {
-            let source = index == 0 ? url : URL(filePath: url.path + ".\(index)")
-            if manager.fileExists(atPath: source.path) {
-                try manager.moveItem(at: source, to: URL(filePath: url.path + ".\(index + 1)"))
-            }
+    private func openLog(create: Bool) throws -> Int32 {
+        let descriptor = open(url.path, O_WRONLY | O_APPEND | O_NOFOLLOW | (create ? O_CREAT : 0), mode_t(S_IRUSR | S_IWUSR))
+        guard descriptor >= 0 else { throw systemError() }
+        var metadata = stat()
+        guard fstat(descriptor, &metadata) == 0, (metadata.st_mode & S_IFMT) == S_IFREG else {
+            close(descriptor)
+            throw fileError("Log path is not a regular file")
         }
+        return descriptor
+    }
+
+    private func verifyRegularFile(_ path: String) throws {
+        var metadata = stat()
+        guard lstat(path, &metadata) == 0 else {
+            if errno == ENOENT { return }
+            throw systemError()
+        }
+        guard (metadata.st_mode & S_IFMT) == S_IFREG else { throw fileError("Log path is not a regular file") }
+    }
+
+    private func rotate() throws {
+        for index in 0...3 { try verifyRegularFile(index == 0 ? url.path : "\(url.path).\(index)") }
+        let oldest = "\(url.path).3"
+        if unlink(oldest) != 0 && errno != ENOENT { throw systemError() }
+        for index in stride(from: 2, through: 0, by: -1) {
+            let source = index == 0 ? url.path : "\(url.path).\(index)"
+            let destination = "\(url.path).\(index + 1)"
+            if rename(source, destination) != 0 && errno != ENOENT { throw systemError() }
+        }
+    }
+
+    private func systemError() -> NSError {
+        NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSLocalizedDescriptionKey: String(cString: strerror(errno))])
+    }
+
+    private func fileError(_ message: String) -> NSError {
+        NSError(domain: "VisualizeLogFile", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
     }
 
     func flush() async -> String? {
