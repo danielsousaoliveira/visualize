@@ -146,7 +146,7 @@ struct GitReleaseTests {
         #expect(!FileManager.default.fileExists(atPath: repo.local.appending(path: "pwned").path))
     }
 
-    @Test func checkedOutProductionKeepsIndexAndFiles() async throws {
+    @Test func checkedOutProductionKeepsRefStatusIndexAndFiles() async throws {
         let repo = try Repository()
         defer { repo.remove() }
         let file = repo.local.appending(path: "tracked.txt")
@@ -163,10 +163,15 @@ struct GitReleaseTests {
         _ = try repo.git(["add", "tracked.txt"])
         try "unstaged work".write(to: file, atomically: true, encoding: .utf8)
         let index = try repo.git(["ls-files", "--stage"])
+        let original = try repo.git(["rev-parse", "production"])
+        let status = try repo.git(["status", "--porcelain"])
         let git = repo.release()
         let review = try await git.preflight(ReleaseSettings())
-        _ = try await git.push(review, confirmation: "")
-        #expect(try repo.git(["rev-parse", "production"]) == review.mainSHA)
+        let result = try await git.push(review, confirmation: "")
+        #expect(try repo.git(["rev-parse", "production"]) == original)
+        #expect(try repo.remoteSHA("production") == review.mainSHA)
+        #expect(try repo.git(["status", "--porcelain"]) == status)
+        #expect(result.contains("left unchanged"))
         #expect(try repo.git(["branch", "--show-current"]) == "production")
         #expect(try repo.git(["ls-files", "--stage"]) == index)
         #expect(try String(contentsOf: file, encoding: .utf8) == "unstaged work")
@@ -208,6 +213,55 @@ struct GitReleaseTests {
         let nonGit = GitRelease(folder: repo.root, logURL: repo.log) { _ in }
         await #expect(throws: (any Error).self) { try await nonGit.preflight(ReleaseSettings()) }
         #expect(try String(contentsOf: repo.log, encoding: .utf8).contains("not a git repository"))
+    }
+
+    @Test func productionCheckedOutInLinkedWorktreeIsPreserved() async throws {
+        let repo = try Repository()
+        defer { repo.remove() }
+        let worktree = repo.root.appending(path: "production-worktree")
+        _ = try repo.git(["worktree", "add", worktree.path, "production"])
+        let original = try repo.git(["rev-parse", "production"])
+        _ = try repo.git(["commit", "--allow-empty", "-m", "Main change"])
+        _ = try repo.git(["push", "origin", "main"])
+        let git = repo.release()
+        let review = try await git.preflight(ReleaseSettings())
+        let result = try await git.push(review, confirmation: "")
+        #expect(try repo.remoteSHA("production") == review.mainSHA)
+        #expect(try repo.git(["rev-parse", "production"]) == original)
+        #expect(try Repository.run(["-C", worktree.path, "status", "--porcelain"]).isEmpty)
+        #expect(result.contains("left unchanged"))
+    }
+
+    @Test func credentialsAreRemovedFromGitFailuresAndLogs() async throws {
+        let repo = try Repository()
+        defer { repo.remove() }
+        let url = "file://release-user:release-secret@" + repo.root.appending(path: "missing.git").path + "?access_token=release-token"
+        _ = try repo.git(["remote", "set-url", "origin", url])
+        let git = repo.release()
+        do {
+            _ = try await git.preflight(ReleaseSettings())
+            Issue.record("Expected fetch to fail")
+        } catch {
+            for secret in ["release-user", "release-secret", "release-token"] {
+                #expect(!error.localizedDescription.contains(secret))
+            }
+        }
+        let log = try String(contentsOf: repo.log, encoding: .utf8)
+        for secret in ["release-user", "release-secret", "release-token"] {
+            #expect(!log.contains(secret))
+        }
+        #expect(log.contains("[output omitted]"))
+        #expect(log.contains("[redacted]"))
+    }
+
+    @Test func redactsUserInfoAndSignedURLParameters() {
+        let text = "fatal: https://token-only@example.com/repo and ssh://user:password@example.com/repo?token=secret#fragment"
+        let redacted = GitOutputRedactor.redact(text)
+        for secret in ["token-only", "user", "password", "secret", "fragment"] {
+            #expect(!redacted.contains(secret))
+        }
+        #expect(redacted.contains("example.com/repo"))
+        #expect(GitOutputRedactor.redact("abc123 Fix startup\n[exit 0]") == "abc123 Fix startup\n[exit 0]")
     }
 
     @Test func releaseSettingsSurviveLibraryRoundTrip() throws {

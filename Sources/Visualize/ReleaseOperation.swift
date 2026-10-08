@@ -17,7 +17,7 @@ final class ReleaseOperation {
     init(folder: URL, logURL: URL) {
         self.folder = folder
         self.logURL = logURL
-        output = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
+        output = GitOutputRedactor.redact((try? String(contentsOf: logURL, encoding: .utf8)) ?? "")
     }
 
     private func append(_ text: String) { output += text }
@@ -31,7 +31,7 @@ final class ReleaseOperation {
         do {
             preflight = try await git.preflight(settings)
             if preflight?.unchanged == true { result = "Already up to date" }
-        } catch { result = error.localizedDescription }
+        } catch { result = GitOutputRedactor.redact(error.localizedDescription) }
     }
 
     func push(confirmation: String) async {
@@ -40,6 +40,6 @@ final class ReleaseOperation {
         preflight = nil
         defer { busy = false }
         do { result = try await git.push(reviewed, confirmation: confirmation) }
-        catch { result = error.localizedDescription }
+        catch { result = GitOutputRedactor.redact(error.localizedDescription) }
     }
 }

@@ -7,11 +7,11 @@ actor GitRelease {
 
     init(folder: URL, logURL: URL, report: @escaping @Sendable (String) async -> Void) {
         self.folder = folder
-        writer = LogFileWriter(url: logURL, limit: Int.max)
+        writer = LogFileWriter(url: logURL)
         self.report = report
     }
 
-    private func git(_ arguments: [String], allowFailure: Bool = false) async throws -> String {
+    private func git(_ arguments: [String], allowFailure: Bool = false, logOutput: Bool = true) async throws -> String {
         let process = Process()
         let output = Pipe()
         process.executableURL = URL(filePath: "/usr/bin/git")
@@ -25,11 +25,16 @@ actor GitRelease {
         let command = "$ git " + arguments.map { String(reflecting: $0) }.joined(separator: " ") + "\n"
         await record(command)
         do { try process.run() }
-        catch { await record(error.localizedDescription + "\n"); throw error }
+        catch {
+            let message = GitOutputRedactor.redact(error.localizedDescription)
+            await record(message + "\n")
+            throw invalid(message)
+        }
         let drain = PipeDrain(output.fileHandleForReading)
         process.waitUntilExit()
-        let result = String(decoding: drain.wait(), as: UTF8.self)
-        await record(result + "[exit \(process.terminationStatus)]\n")
+        let result = GitOutputRedactor.redact(String(decoding: drain.wait(), as: UTF8.self))
+        let visible = logOutput || process.terminationStatus != 0 ? result : "[output omitted]\n"
+        await record(visible + "[exit \(process.terminationStatus)]\n")
         if process.terminationStatus != 0 && !allowFailure {
             throw NSError(domain: "GitRelease", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: result])
         }
@@ -37,10 +42,11 @@ actor GitRelease {
     }
 
     private func record(_ text: String) async {
-        writer.append(Data(text.utf8))
-        await report(text)
+        let safeText = GitOutputRedactor.redact(text)
+        writer.append(Data(safeText.utf8))
+        await report(safeText)
         if let failure = await writer.flush() {
-            await report("Could not save release log: \(failure)\n")
+            await report(GitOutputRedactor.redact("Could not save release log: \(failure)\n"))
         }
     }
 
@@ -53,7 +59,7 @@ actor GitRelease {
         _ = try await git(["rev-parse", "--git-dir"])
         var settings = configured
         guard !settings.remote.isEmpty, !settings.remote.hasPrefix("-") else { throw invalid("Enter a remote name") }
-        _ = try await git(["remote", "get-url", "--", settings.remote])
+        _ = try await git(["remote", "get-url", "--", settings.remote], logOutput: false)
         _ = try await git(["fetch", "--prune", "--", settings.remote])
         let remoteRefs = "refs/remotes/" + settings.remote + "/"
         if settings.main.isEmpty {
@@ -96,7 +102,15 @@ actor GitRelease {
         arguments += ["--", preflight.settings.remote, preflight.mainSHA + ":" + ref]
         _ = try await git(arguments)
         if let local = try await sha(ref, optional: true) {
-            do { _ = try await git(["update-ref", ref, preflight.mainSHA, local]) }
+            do {
+                let worktrees = try await git(["worktree", "list", "--porcelain", "-z"])
+                if worktrees.components(separatedBy: "\0").contains("branch " + ref) {
+                    let message = "Production pushed. Local production is checked out in a worktree and was left unchanged."
+                    await record(message + "\n")
+                    return message
+                }
+                _ = try await git(["update-ref", ref, preflight.mainSHA, local])
+            }
             catch { return "Production pushed, but local production could not be updated: " + error.localizedDescription }
         }
         return "Production now matches " + preflight.settings.main
