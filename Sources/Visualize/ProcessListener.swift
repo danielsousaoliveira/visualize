@@ -9,9 +9,20 @@ struct ProcessListener: Identifiable, Sendable {
     let startedAt: ProcessIdentity?
     let cpuPercent: Double?
     let memoryBytes: UInt64?
-    let projectName: String?
+    var projectName: String?
     let projectFolder: String?
-    let gitBranch: String?
+    var gitBranch: String?
+
+    var libraryProjectID: UUID? = nil
+    var serviceName: String? = nil
+    var startedByVisualize = false
+    var attributionLabel: String {
+        if libraryProjectID != nil || startedByVisualize {
+            return "\(projectName ?? "Unknown project") / \(serviceName ?? "unknown service")"
+        }
+        return container.map { $0.composeProject ?? $0.name } ?? "\(projectName ?? "Unknown project") / \(name)"
+    }
+    var attributionGroup: String { libraryProjectID == nil && !startedByVisualize ? "Other" : projectName ?? "Unknown project" }
 
     var container: DockerContainer? = nil
 

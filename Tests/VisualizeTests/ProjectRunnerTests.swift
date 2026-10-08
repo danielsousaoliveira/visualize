@@ -35,6 +35,14 @@ struct ProjectRunnerTests {
         let db = try #require(project.lastResult?.services.first)
         await state.start(project: project, service: db, recipe: try #require(state.recipe(project: project, service: db)))
         let pid = try #require(state.serviceRuns[state.runKey(project: project, service: db)]?.pid)
+        let group = try #require(state.serviceRuns[state.runKey(project: project, service: db)]?.group)
+        let listener = ProcessListener(port: 3000, pid: pid, name: "sleep", executablePath: nil, workingDirectory: "/",
+            startedAt: ProcessIdentity(pid: pid, seconds: group.seconds, microseconds: group.microseconds),
+            cpuPercent: nil, memoryBytes: nil, projectName: nil, projectFolder: nil, gitBranch: nil)
+        let attribution = try #require(state.ownedAttribution(listener))
+        #expect(attribution.startedByVisualize)
+        #expect(attribution.serviceName == db.name)
+        #expect(attribution.libraryProjectID == project.id)
         await state.startAll(project: project, mode: .configured)
         #expect(state.serviceRuns[state.runKey(project: project, service: db)]?.pid == pid)
         #expect(state.projectOperations[project.id]?.order == ["db", "api", "web"])

@@ -16,7 +16,7 @@ final class ProcessListenerStore {
     private let monitor = ProcessListenerMonitor()
     private var task: Task<Void, Never>?
 
-    func start(projects: @escaping @MainActor () -> [Project], dockerOverride: @escaping @MainActor () -> String? = { nil }) {
+    func start(projects: @escaping @MainActor () -> [Project], ownedAttribution: @escaping @MainActor (ProcessListener) -> ProcessListener? = { _ in nil }, dockerOverride: @escaping @MainActor () -> String? = { nil }) {
         guard task == nil else { return }
         dockerTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -27,7 +27,7 @@ final class ProcessListenerStore {
                     guard !Task.isCancelled else { return }
                     scannedDockerOverride = override
                     containers = result
-                    merge(projects: projects())
+                    merge(projects: projects(), ownedAttribution: ownedAttribution)
                 }
                 try? await Task.sleep(for: .seconds(5))
             }
@@ -49,7 +49,7 @@ final class ProcessListenerStore {
                     }
                     guard !Task.isCancelled else { return }
                     processes = results
-                    merge(projects: currentProjects)
+                    merge(projects: projects(), ownedAttribution: ownedAttribution)
                     lastScan = Date()
                 }
                 try? await Task.sleep(for: .seconds(2))
@@ -64,10 +64,10 @@ final class ProcessListenerStore {
         dockerTask = nil
     }
 
-    private func merge(projects: [Project]) {
+    private func merge(projects: [Project], ownedAttribution: (ProcessListener) -> ProcessListener?) {
         let lower = min(65535, max(1, lowerPort))
         let upper = min(65535, max(1, upperPort))
-        listeners = DockerContainerMonitor.merge(processes: processes, containers: containers, projects: projects,
+        listeners = DockerContainerMonitor.merge(processes: processes.map { ownedAttribution($0) ?? PortAttribution.resolve($0, projects: projects) }, containers: containers, projects: projects,
                                                  ports: lower <= upper ? lower...upper : nil)
     }
 
@@ -75,6 +75,10 @@ final class ProcessListenerStore {
         let allowedIDs = Set(listeners.compactMap { $0.container?.id }).intersection(containers.map(\.id))
         guard allowedIDs.contains(container.id), scannedDockerOverride == overridePath else {
             actionError = "Container is no longer in the displayed monitor results"
+            return
+        }
+        guard action != "restart" || listeners.contains(where: { $0.container?.id == container.id && $0.startedByVisualize }) else {
+            actionError = "Visualize can only restart containers it started"
             return
         }
         guard busyContainers.insert(container.id).inserted else { return }

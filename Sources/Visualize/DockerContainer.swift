@@ -36,15 +36,13 @@ struct DockerContainer: Sendable {
     }
 
     func listeners(projects: [Project]) -> [ProcessListener] {
-        let project = projects.first { $0.id.uuidString == labels["visualize.library"] }
-            ?? projects.first { $0.folderPath == workingDirectory }
         return ports.map { port in
-            ProcessListener(port: port, pid: 0, name: name, executablePath: nil,
-                            workingDirectory: workingDirectory ?? project?.folderPath, startedAt: nil,
+            PortAttribution.resolve(ProcessListener(port: port, pid: 0, name: name, executablePath: nil,
+                            workingDirectory: workingDirectory, startedAt: nil,
                             cpuPercent: nil, memoryBytes: nil,
-                            projectName: project?.name ?? visualizeProject ?? composeProject,
-                            projectFolder: project?.folderPath ?? workingDirectory, gitBranch: project?.lastResult?.project.gitBranch,
-                            container: self)
+                            projectName: visualizeProject ?? composeProject,
+                            projectFolder: workingDirectory, gitBranch: nil,
+                            container: self), projects: projects)
         }
     }
 }
