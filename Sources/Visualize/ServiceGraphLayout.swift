@@ -120,17 +120,13 @@ struct ServiceGraphLayout {
             outgoing[edge.from, default: []].append(edge.to)
             incoming[edge.to, default: []].append(edge.from)
         }
-        var remaining = Set(ids)
-        var scores = Dictionary(uniqueKeysWithValues: ids.map { ($0, outgoing[$0, default: []].count - incoming[$0, default: []].count) })
+        let scores = Dictionary(uniqueKeysWithValues: ids.map { ($0, outgoing[$0, default: []].count - incoming[$0, default: []].count) })
+        var queue = GraphPriorityQueue(scores: scores)
         var heuristic: [String] = []
-        while !remaining.isEmpty {
-            let next = ids.filter { remaining.contains($0) }.min { a, b in
-                scores[a] == scores[b] ? a < b : scores[a]! < scores[b]!
-            }!
+        while let next = queue.pop() {
             heuristic.append(next)
-            remaining.remove(next)
-            for source in incoming[next, default: []] where remaining.contains(source) { scores[source]! -= 1 }
-            for target in outgoing[next, default: []] where remaining.contains(target) { scores[target]! += 1 }
+            for source in incoming[next, default: []] { queue.adjust(source, by: -1) }
+            for target in outgoing[next, default: []] { queue.adjust(target, by: 1) }
         }
         guard ids.count <= exactCycleLimit else { return heuristic }
         var best = heuristic

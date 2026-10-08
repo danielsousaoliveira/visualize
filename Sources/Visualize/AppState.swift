@@ -496,6 +496,13 @@ final class AppState {
         return model
     }
 
+    func resetGraphLayout(projectID: UUID) {
+        guard let index = projects.firstIndex(where: { $0.id == projectID }) else { return }
+        projects[index].savedGraphPositions = nil
+        if let graph = projects[index].serviceGraph { graphModels[projectID]?.replaceGraph(graph) }
+        persist()
+    }
+
     private func saveGraphPosition(_ position: GraphPosition?, nodeID: String, projectID: UUID) {
         guard let index = projects.firstIndex(where: { $0.id == projectID }) else { return }
         var positions = projects[index].savedGraphPositions ?? [:]
