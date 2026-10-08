@@ -2,6 +2,8 @@ import SwiftUI
 
 struct ProjectDetailView: View {
     @Environment(AppState.self) private var appState
+    @State private var graphSelected = false
+    @State private var logServiceID: String?
     @State private var pendingStartMode: ProjectStartMode?
     @State private var pendingCommands: [RunRecipe] = []
     @State private var showStartConfirmation = false
@@ -73,54 +75,67 @@ struct ProjectDetailView: View {
     @ViewBuilder
     private var content: some View {
         if let result = project.lastResult {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 24) {
-                    header(result)
-                    if let operation = appState.projectOperations[project.id] {
-                        GroupBox("Project progress") {
-                            VStack(alignment: .leading, spacing: 8) {
-                                ForEach(operation.warnings, id: \.self) { Text($0).foregroundStyle(.orange) }
-                                ForEach(operation.order, id: \.self) { id in
-                                    HStack {
-                                        Text(result.services.first { $0.id == id }?.name ?? id)
-                                        Spacer()
-                                        Text(operation.statuses[id] ?? "waiting").foregroundStyle(.secondary)
-                                    }
+            VStack(spacing: 0) {
+                Picker("Project view", selection: $graphSelected) {
+                    Text("Services").tag(false)
+                    Text("Graph").tag(true)
+                }.pickerStyle(.segmented).padding(.horizontal, 24).padding(.top, 12)
+                if graphSelected, let model = appState.graphModel(projectID: project.id) {
+                    ProjectGraphView(project: project, model: model) { id in
+                        logServiceID = id
+                        graphSelected = false
+                    }.id(project.id)
+                } else {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 24) {
+                            header(result)
+                            if let operation = appState.projectOperations[project.id] {
+                                GroupBox("Project progress") {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        ForEach(operation.warnings, id: \.self) { Text($0).foregroundStyle(.orange) }
+                                        ForEach(operation.order, id: \.self) { id in
+                                            HStack {
+                                                Text(result.services.first { $0.id == id }?.name ?? id)
+                                                Spacer()
+                                                Text(operation.statuses[id] ?? "waiting").foregroundStyle(.secondary)
+                                            }
+                                        }
+                                    }.frame(maxWidth: .infinity, alignment: .leading)
                                 }
-                            }.frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            DisclosureGroup("Warnings (\(result.warnings.count))") {
+                                warnings(result.warnings)
+                            }
+                            if !result.services.contains(where: {
+                                $0.runModes.local.available || $0.runModes.compose.available || $0.runModes.dockerfile.available
+                            }) && result.composeServices.isEmpty {
+                                ContentUnavailableView("Nothing runnable detected in this folder", systemImage: "magnifyingglass")
+                                warnings(result.warnings)
+                            }
+                            ServiceLogsPanel(project: project, services: result.services, requestedSelection: logServiceID)
+                            if !result.services.isEmpty {
+                                sectionTitle("Services", count: result.services.count)
+                                ForEach(result.services) { service in
+                                    ServiceCard(project: project, service: service, environment: result.envRequirements.first { $0.serviceId == service.id })
+                                }
+                            }
+                            if !result.infra.isEmpty {
+                                sectionTitle("Infra", count: result.infra.count)
+                                ForEach(result.infra, id: \.id) { infra in
+                                    InfraCard(infra: infra, services: result.services)
+                                }
+                            }
+                            if !result.composeFiles.isEmpty {
+                                sectionTitle("Compose", count: result.composeFiles.count)
+                                ForEach(result.composeFiles, id: \.self) { file in
+                                    ComposeFileCard(file: file, result: result)
+                                }
+                            }
                         }
-                    }
-                    DisclosureGroup("Warnings (\(result.warnings.count))") {
-                        warnings(result.warnings)
-                    }
-                    if !result.services.contains(where: {
-                        $0.runModes.local.available || $0.runModes.compose.available || $0.runModes.dockerfile.available
-                    }) && result.composeServices.isEmpty {
-                        ContentUnavailableView("Nothing runnable detected in this folder", systemImage: "magnifyingglass")
-                        warnings(result.warnings)
-                    }
-                    ServiceLogsPanel(project: project, services: result.services)
-                    if !result.services.isEmpty {
-                        sectionTitle("Services", count: result.services.count)
-                        ForEach(result.services) { service in
-                            ServiceCard(project: project, service: service, environment: result.envRequirements.first { $0.serviceId == service.id })
-                        }
-                    }
-                    if !result.infra.isEmpty {
-                        sectionTitle("Infra", count: result.infra.count)
-                        ForEach(result.infra, id: \.id) { infra in
-                            InfraCard(infra: infra, services: result.services)
-                        }
-                    }
-                    if !result.composeFiles.isEmpty {
-                        sectionTitle("Compose", count: result.composeFiles.count)
-                        ForEach(result.composeFiles, id: \.self) { file in
-                            ComposeFileCard(file: file, result: result)
-                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(24)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(24)
             }
         } else if isScanning {
             ProgressView("Scanning \(project.name)…")

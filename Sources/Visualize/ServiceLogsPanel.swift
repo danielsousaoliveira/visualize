@@ -7,6 +7,7 @@ struct ServiceLogsPanel: View {
     @State private var expanded = true
     let project: Project
     let services: [ScanService]
+    var requestedSelection: String? = nil
 
     private var available: [ScanService] {
         let previous = appState.launchedServices[project.id, default: [:]].values
@@ -39,6 +40,10 @@ struct ServiceLogsPanel: View {
                         }
                     }.padding(.top, 12)
                 }
+            }
+            .onAppear { if let requestedSelection { selected = requestedSelection; expanded = true } }
+            .onChange(of: requestedSelection) { _, value in
+                if let value { selected = value; expanded = true }
             }
         }
     }
