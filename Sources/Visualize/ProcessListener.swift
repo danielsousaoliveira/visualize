@@ -13,7 +13,12 @@ struct ProcessListener: Identifiable, Sendable {
     let projectFolder: String?
     let gitBranch: String?
 
-    var id: String { "\(port):\(pid):\(startedAt?.seconds ?? 0):\(startedAt?.microseconds ?? 0)" }
+    var container: DockerContainer? = nil
+
+    var id: String {
+        if let container { return "docker:\(container.id):\(port)" }
+        return "\(port):\(pid):\(startedAt?.seconds ?? 0):\(startedAt?.microseconds ?? 0)"
+    }
     var identity: ProcessIdentity? { startedAt }
 }
 
