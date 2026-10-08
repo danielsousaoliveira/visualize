@@ -77,4 +77,74 @@ struct ServiceGraphTests {
         #expect(before == 6)
         #expect(after < before)
     }
+    @Test func duplicateIDsAndUnknownEndpointsHaveCanonicalNodes() throws {
+        let infra = [
+            ScanInfra(id: "db", kind: .postgres, usedBy: [], providedBy: nil, evidence: [], host: nil, port: nil),
+            ScanInfra(id: "db", kind: .postgres, usedBy: [], providedBy: "compose:db", evidence: [], host: nil, port: nil),
+            ScanInfra(id: "db", kind: .redis, usedBy: [], providedBy: "compose:db", evidence: [], host: nil, port: nil),
+        ]
+        let graph = ServiceGraph(scan: try scan(["api", "api", "compose:db"], edges: [edge("api", "db"), edge("missing", "api")], infra: infra))
+        #expect(graph.nodes.map(\.id) == ["api", "compose:db", "missing"])
+        #expect(graph.nodes.first { $0.id == "compose:db" }?.infraKinds == [.postgres, .redis])
+        #expect(graph.edges[0].to == "compose:db")
+        #expect(graph.warnings.count == 1)
+        #expect(graph.edges.allSatisfy { graph.positions[$0.from] != nil && graph.positions[$0.to] != nil })
+    }
+
+    @Test(arguments: [ScanConnectionKind.dependsOn, .envURL, .usesInfra, .workspaceDep])
+    func explicitConsumerDirectionAndPriority(_ kind: ScanConnectionKind) throws {
+        var input = try scan(["web", "api", "other-api"], edges: [edge("api", "web", kind), edge("db", "api", kind)], infra: [ScanInfra(id: "db", kind: .postgres, usedBy: [], providedBy: nil, evidence: [], host: nil, port: nil)])
+        for index in input.services.indices { input.services[index].category = input.services[index].id == "web" ? "frontend" : "backend" }
+        let graph = ServiceGraph(scan: input)
+        #expect(graph.layers == [["db"], ["api", "other-api"], ["web"]])
+        #expect(graph.edges.map(\.from) == ["api", "db"])
+        #expect(graph.edges.allSatisfy { $0.reversedForLayout })
+        #expect(graph.edges[0].consumerID == "api")
+        #expect(graph.edges[0].dependencyID == "web")
+        input.connections = [edge("web", "api", kind), edge("api", "db", kind)]
+        #expect(ServiceGraph(scan: input).layers == graph.layers)
+    }
+
+    @Test func isolatedKindsRespectPriority() throws {
+        var input = try scan(["web", "api"], edges: [])
+        input.services[0].category = "frontend"
+        input.services[1].category = "backend"
+        #expect(ServiceGraph(scan: input).layers == [["api"], ["web"]])
+    }
+
+    @Test func largeCycleUsesBoundedLayout() throws {
+        let ids = (0..<200).map { String(format: "node-%03d", $0) }
+        let connections = ids.enumerated().map { edge($0.element, ids[($0.offset + 1) % ids.count]) }
+        let input = try scan(ids, edges: connections)
+        let graph = ServiceGraph(scan: input)
+        #expect(ids.count > ServiceGraphLayout.exactCycleLimit)
+        #expect(graph.positions.count == ids.count)
+        #expect(graph.edges.allSatisfy { $0.isCyclic })
+        #expect(graph == ServiceGraph(scan: input))
+        for edge in graph.edges {
+            let consumer = edge.reversedForLayout ? edge.to : edge.from
+            let dependency = edge.reversedForLayout ? edge.from : edge.to
+            #expect(graph.positions[consumer]!.x > graph.positions[dependency]!.x)
+        }
+    }
+
+    @Test func smallCycleReversesTheMinimumNumber() throws {
+        let ids = ["a", "b", "c", "d"]
+        let connections = [edge("a", "b"), edge("b", "c"), edge("c", "a"), edge("c", "d"), edge("d", "b"), edge("a", "c")]
+        func orders(_ ids: [String]) -> [[String]] {
+            if ids.isEmpty { return [[]] }
+            return ids.flatMap { id in orders(ids.filter { $0 != id }).map { [id] + $0 } }
+        }
+        let minimum = orders(ids).map { order in
+            connections.filter { order.firstIndex(of: $0.from)! < order.firstIndex(of: $0.to)! }.count
+        }.min()!
+        let graph = ServiceGraph(scan: try scan(ids, edges: connections))
+        #expect(graph.edges.filter { $0.reversedForLayout }.count == minimum)
+    }
+
+    @Test func crossingCountExcludesSharedEndpointsAndCountsParallelEdges() {
+        let layers = [["a", "b"], ["c", "d"]]
+        #expect(ServiceGraphLayout.crossings(layers, dependencies: [("a", "d"), ("a", "c"), ("b", "c"), ("b", "c")]) == 2)
+    }
+
 }

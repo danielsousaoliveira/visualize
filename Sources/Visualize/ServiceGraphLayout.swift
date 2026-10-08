@@ -1,49 +1,74 @@
 import Foundation
 
 struct ServiceGraphLayout {
+    static let exactCycleLimit = 10
+
     static func apply(to graph: inout ServiceGraph, savedPositions: [String: GraphPosition] = [:], reduceCrossings: Bool = true) {
         let ids = graph.nodes.map(\.id)
-        let known = Set(ids)
-        let edges = graph.edges.filter { known.contains($0.from) && known.contains($0.to) }
-        var reach: [String: Set<String>] = [:]
-        for id in ids {
-            var pending = [id]
-            var visited: Set<String> = []
-            while let next = pending.popLast() {
-                for edge in edges where edge.from == next {
-                    if visited.insert(edge.to).inserted { pending.append(edge.to) }
-                }
-            }
-            reach[id] = visited
+        let priorities = Dictionary(uniqueKeysWithValues: graph.nodes.map { ($0.id, $0.layoutPriority) })
+        let knownEdges = graph.edges.filter { priorities[$0.from] != nil && priorities[$0.to] != nil }
+        let realComponents = components(ids, edges: knownEdges.map { ($0.from, $0.to) })
+        let realSizes = Dictionary(grouping: ids, by: { realComponents[$0]! }).mapValues(\.count)
+        var normalized = knownEdges.map { edge -> ServiceGraphEdge in
+            var result = edge
+            result.from = edge.consumerID
+            result.to = edge.dependencyID
+            if priorities[result.from]! < priorities[result.to]! { swap(&result.from, &result.to) }
+            return result
         }
-        var remaining = Set(ids)
+        let layoutComponents = components(ids, edges: normalized.map { ($0.from, $0.to) })
+        let groups = Dictionary(grouping: ids, by: { layoutComponents[$0]! })
         var rank: [String: Int] = [:]
-        while let first = ids.first(where: { remaining.contains($0) }) {
-            let component = ids.filter { $0 == first || (reach[first, default: []].contains($0) && reach[$0, default: []].contains(first)) }
-            remaining.subtract(component)
-            let internalEdges = edges.filter { component.contains($0.from) && component.contains($0.to) && $0.from != $0.to }
-            let order = minimumReversalOrder(component, edges: internalEdges)
+        let groupedEdges = Dictionary(grouping: normalized.filter { layoutComponents[$0.from] == layoutComponents[$0.to] && $0.from != $0.to }, by: { layoutComponents[$0.from]! })
+        for key in groups.keys.sorted() {
+            let order = reversalOrder(groups[key]!.sorted(), edges: groupedEdges[key] ?? [])
             for (index, id) in order.enumerated() { rank[id] = index }
         }
+        for index in normalized.indices {
+            if normalized[index].from != normalized[index].to,
+               layoutComponents[normalized[index].from] == layoutComponents[normalized[index].to],
+               rank[normalized[index].from]! < rank[normalized[index].to]! {
+                let from = normalized[index].from
+                normalized[index].from = normalized[index].to
+                normalized[index].to = from
+            }
+        }
+        let byID = Dictionary(uniqueKeysWithValues: normalized.map { ($0.id, $0) })
         for index in graph.edges.indices {
             let edge = graph.edges[index]
-            let cyclic = known.contains(edge.from) && known.contains(edge.to) && (edge.from == edge.to || (reach[edge.from, default: []].contains(edge.to) && reach[edge.to, default: []].contains(edge.from)))
-            graph.edges[index].isCyclic = cyclic
-            graph.edges[index].reversedForLayout = cyclic && edge.from != edge.to && rank[edge.from, default: 0] < rank[edge.to, default: 0]
+            graph.edges[index].isCyclic = realComponents[edge.from] != nil && realComponents[edge.from] == realComponents[edge.to]
+                && (edge.from == edge.to || (realComponents[edge.from].flatMap { realSizes[$0] } ?? 0) > 1)
+            graph.edges[index].reversedForLayout = byID[edge.id].map { $0.from != edge.from } ?? false
         }
-        let dependencies = graph.edges.compactMap { edge -> (String, String)? in
-            guard known.contains(edge.from), known.contains(edge.to), edge.from != edge.to else { return nil }
-            return edge.reversedForLayout ? (edge.to, edge.from) : (edge.from, edge.to)
+        let dependencies = normalized.filter { $0.from != $0.to && priorities[$0.from] != 0 }.map { ($0.from, $0.to) }
+        var consumers: [String: [String]] = [:]
+        var outstanding: [String: Int] = [:]
+        let hasInfra = priorities.values.contains(0)
+        var layer = Dictionary(uniqueKeysWithValues: ids.map { ($0, priorities[$0] == 0 ? 0 : (hasInfra ? 1 : 0)) })
+        for (from, to) in dependencies {
+            consumers[to, default: []].append(from)
+            outstanding[from, default: 0] += 1
         }
-        var layer: [String: Int] = [:]
-        func assign(_ id: String) -> Int {
-            if let value = layer[id] { return value }
-            let value = dependencies.filter { $0.0 == id }.map { assign($0.1) + 1 }.max() ?? 0
-            layer[id] = value
-            return value
+        var queue = ids.filter { outstanding[$0, default: 0] == 0 }
+        var cursor = 0
+        while cursor < queue.count {
+            let id = queue[cursor]
+            cursor += 1
+            for consumer in consumers[id, default: []] {
+                layer[consumer] = max(layer[consumer]!, layer[id]! + 1)
+                outstanding[consumer]! -= 1
+                if outstanding[consumer] == 0 { queue.append(consumer) }
+            }
         }
-        for id in ids { _ = assign(id) }
-        graph.layers = (0..<(layer.values.max().map { $0 + 1 } ?? 0)).map { level in ids.filter { layer[$0] == level } }
+        let backendMax = ids.filter { priorities[$0] == 1 }.compactMap { layer[$0] }.max()
+        if let backendMax {
+            let frontends = ids.filter { priorities[$0] == 2 }
+            if let minimum = frontends.compactMap({ layer[$0] }).min(), minimum <= backendMax {
+                for id in frontends { layer[id]! += backendMax + 1 - minimum }
+            }
+        }
+        graph.layers = Array(repeating: [], count: layer.values.max().map { $0 + 1 } ?? 0)
+        for id in ids { graph.layers[layer[id]!].append(id) }
         if reduceCrossings { barycentre(&graph.layers, dependencies: dependencies) }
         graph.positions = [:]
         for (x, row) in graph.layers.enumerated() {
@@ -53,13 +78,64 @@ struct ServiceGraphLayout {
         }
     }
 
-    private static func minimumReversalOrder(_ ids: [String], edges: [ServiceGraphEdge]) -> [String] {
-        var best = ids
-        func cost(_ order: [String]) -> Int {
-            let ranks = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($0.element, $0.offset) })
-            return edges.filter { ranks[$0.from]! < ranks[$0.to]! }.count
+    private static func components(_ ids: [String], edges: [(String, String)]) -> [String: Int] {
+        var outgoing: [String: [String]] = [:]
+        var incoming: [String: [String]] = [:]
+        for (from, to) in edges {
+            outgoing[from, default: []].append(to)
+            incoming[to, default: []].append(from)
         }
-        var bestCost = cost(best)
+        var seen: Set<String> = []
+        var finished: [String] = []
+        for id in ids where !seen.contains(id) {
+            var stack: [(String, Bool)] = [(id, false)]
+            while let (node, exit) = stack.popLast() {
+                if exit { finished.append(node); continue }
+                guard seen.insert(node).inserted else { continue }
+                stack.append((node, true))
+                for next in outgoing[node, default: []].reversed() where !seen.contains(next) { stack.append((next, false)) }
+            }
+        }
+        var result: [String: Int] = [:]
+        var component = 0
+        for id in finished.reversed() where result[id] == nil {
+            var stack = [id]
+            result[id] = component
+            while let node = stack.popLast() {
+                for next in incoming[node, default: []] where result[next] == nil {
+                    result[next] = component
+                    stack.append(next)
+                }
+            }
+            component += 1
+        }
+        return result
+    }
+
+    private static func reversalOrder(_ ids: [String], edges: [ServiceGraphEdge]) -> [String] {
+        guard ids.count > 1 else { return ids }
+        var outgoing: [String: [String]] = [:]
+        var incoming: [String: [String]] = [:]
+        for edge in edges {
+            outgoing[edge.from, default: []].append(edge.to)
+            incoming[edge.to, default: []].append(edge.from)
+        }
+        var remaining = Set(ids)
+        var scores = Dictionary(uniqueKeysWithValues: ids.map { ($0, outgoing[$0, default: []].count - incoming[$0, default: []].count) })
+        var heuristic: [String] = []
+        while !remaining.isEmpty {
+            let next = ids.filter { remaining.contains($0) }.min { a, b in
+                scores[a] == scores[b] ? a < b : scores[a]! < scores[b]!
+            }!
+            heuristic.append(next)
+            remaining.remove(next)
+            for source in incoming[next, default: []] where remaining.contains(source) { scores[source]! -= 1 }
+            for target in outgoing[next, default: []] where remaining.contains(target) { scores[target]! += 1 }
+        }
+        guard ids.count <= exactCycleLimit else { return heuristic }
+        var best = heuristic
+        let ranks = Dictionary(uniqueKeysWithValues: best.enumerated().map { ($0.element, $0.offset) })
+        var bestCost = edges.filter { ranks[$0.from]! < ranks[$0.to]! }.count
         var memo: [Set<String>: Int] = [:]
         func search(_ prefix: [String], _ remaining: Set<String>, _ score: Int) {
             guard score < bestCost else { return }
@@ -68,7 +144,7 @@ struct ServiceGraphLayout {
             memo[remaining] = score
             for id in ids where remaining.contains(id) {
                 let rest = remaining.subtracting([id])
-                let added = edges.filter { $0.from == id && rest.contains($0.to) }.count
+                let added = outgoing[id, default: []].filter { rest.contains($0) }.count
                 search(prefix + [id], rest, score + added)
             }
         }
@@ -78,6 +154,11 @@ struct ServiceGraphLayout {
 
     private static func barycentre(_ layers: inout [[String]], dependencies: [(String, String)]) {
         guard layers.count > 1 else { return }
+        var neighbours: [String: [String]] = [:]
+        for (from, to) in dependencies {
+            neighbours[from, default: []].append(to)
+            neighbours[to, default: []].append(from)
+        }
         var best = layers
         var bestCount = crossings(layers, dependencies: dependencies)
         for _ in 0..<8 {
@@ -86,12 +167,12 @@ struct ServiceGraphLayout {
                 for index in indices {
                     let adjacent = index + (forward ? -1 : 1)
                     let ranks = Dictionary(uniqueKeysWithValues: layers[adjacent].enumerated().map { ($0.element, Double($0.offset)) })
-                    let original = Dictionary(uniqueKeysWithValues: layers[index].enumerated().map { ($0.element, Double($0.offset)) })
-                    func centre(_ id: String) -> Double {
-                        let values = dependencies.compactMap { from, to in from == id ? ranks[to] : (to == id ? ranks[from] : nil) }
-                        return values.isEmpty ? original[id]! : values.reduce(0, +) / Double(values.count)
-                    }
-                    layers[index].sort { centre($0) == centre($1) ? original[$0]! < original[$1]! : centre($0) < centre($1) }
+                    let original = Dictionary(uniqueKeysWithValues: layers[index].enumerated().map { ($0.element, $0.offset) })
+                    let centres = Dictionary(uniqueKeysWithValues: layers[index].map { id in
+                        let values = neighbours[id, default: []].compactMap { ranks[$0] }
+                        return (id, values.isEmpty ? Double(original[id]!) : values.reduce(0, +) / Double(values.count))
+                    })
+                    layers[index].sort { centres[$0] == centres[$1] ? original[$0]! < original[$1]! : centres[$0]! < centres[$1]! }
                 }
                 let count = crossings(layers, dependencies: dependencies)
                 if count < bestCount { best = layers; bestCount = count }
@@ -105,12 +186,26 @@ struct ServiceGraphLayout {
         for (layer, row) in layers.enumerated() {
             for (index, id) in row.enumerated() { positions[id] = (layer, index) }
         }
+        var pairs: [Int: [(Int, Int)]] = [:]
+        for (from, to) in dependencies {
+            guard let a = positions[from], let b = positions[to], abs(a.0 - b.0) == 1 else { continue }
+            let left = a.0 < b.0 ? a : b
+            let right = a.0 < b.0 ? b : a
+            pairs[left.0, default: []].append((left.1, right.1))
+        }
         var count = 0
-        for (index, edge) in dependencies.enumerated() {
-            guard let a = positions[edge.0], let b = positions[edge.1] else { continue }
-            for other in dependencies.dropFirst(index + 1) {
-                guard let c = positions[other.0], let d = positions[other.1], a.0 == c.0, b.0 == d.0 else { continue }
-                if (a.1 - c.1) * (b.1 - d.1) < 0 { count += 1 }
+        for (index, edges) in pairs {
+            let sorted = edges.sorted { $0.0 == $1.0 ? $0.1 < $1.1 : $0.0 < $1.0 }
+            var tree = Array(repeating: 0, count: layers[index + 1].count + 1)
+            var processed = 0
+            for (_, right) in sorted {
+                var cursor = right + 1
+                var lowerOrEqual = 0
+                while cursor > 0 { lowerOrEqual += tree[cursor]; cursor -= cursor & -cursor }
+                count += processed - lowerOrEqual
+                cursor = right + 1
+                while cursor < tree.count { tree[cursor] += 1; cursor += cursor & -cursor }
+                processed += 1
             }
         }
         return count

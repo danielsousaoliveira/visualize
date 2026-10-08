@@ -224,4 +224,34 @@ struct ProjectLibraryTests {
             .filter { $0.hasPrefix("library.unreadable-") }
         #expect(backups.count == 1)
     }
+    @Test func graphMovesPersistThroughRescanAndRelaunch() async throws {
+        defer { stub.remove() }
+        let state = makeState()
+        defer { state.listenerStore.stop() }
+        await state.addProject(folder: try makeFolder("graph"))
+        let project = try #require(state.projects.first)
+        let nodeID = try #require(project.lastResult?.services.first?.id)
+        let model = try #require(state.graphModel(projectID: project.id))
+        let position = GraphPosition(x: 71, y: 95)
+        model.moveNode(nodeID, to: position)
+        #expect(model.graph.positions[nodeID] == position)
+        #expect(try store.load().first?.savedGraphPositions?[nodeID] == position)
+        model.moveNode("missing", to: position)
+        model.moveNode(nodeID, to: GraphPosition(x: .infinity, y: 0))
+        #expect(try store.load().first?.savedGraphPositions == [nodeID: position])
+        var scan = try #require(project.lastResult)
+        var added = try #require(scan.services.first)
+        added.id = "new-node"
+        added.name = "New node"
+        scan.services.append(added)
+        try JSONEncoder().encode(scan).write(to: stub.file("output.json"))
+        await state.rescan(project.id)
+        #expect(state.graphModel(projectID: project.id) === model)
+        #expect(model.graph.positions[nodeID] == position)
+        #expect(model.graph.positions["new-node"] != nil)
+        let relaunched = makeState()
+        defer { relaunched.listenerStore.stop() }
+        #expect(relaunched.graphModel(projectID: project.id)?.graph.positions[nodeID] == position)
+    }
+
 }

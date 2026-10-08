@@ -8,4 +8,16 @@ struct ServiceGraphEdge: Identifiable, Hashable {
     var label: String
     var isCyclic = false
     var reversedForLayout = false
+
+    var consumerID: String {
+        switch kind {
+        case .dependsOn, .envURL, .usesInfra, .workspaceDep: from
+        }
+    }
+
+    var dependencyID: String {
+        switch kind {
+        case .dependsOn, .envURL, .usesInfra, .workspaceDep: to
+        }
+    }
 }

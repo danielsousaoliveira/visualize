@@ -6,6 +6,7 @@ import Observation
 @Observable
 final class AppState {
     private(set) var projects: [Project] = []
+    private var graphModels: [UUID: ServiceGraphModel] = [:]
     let listenerStore = ProcessListenerStore()
     var runningServices: [RunningService] = []
     private(set) var serviceLogs: [String: ServiceLog] = [:]
@@ -428,6 +429,7 @@ final class AppState {
             guard let index = projects.firstIndex(where: { $0.id == id }),
                   projects[index].folderPath == project.folderPath else { return }
             projects[index].lastResult = result
+            if let model = graphModels[id], let graph = projects[index].serviceGraph { model.replaceGraph(graph) }
             scanErrors[id] = nil
             persist()
         } catch {
@@ -460,6 +462,7 @@ final class AppState {
 
     func remove(_ id: Project.ID) {
         projects.removeAll { $0.id == id }
+        graphModels[id] = nil
         scanErrors[id] = nil
         if selection == id {
             selection = nil
@@ -482,7 +485,17 @@ final class AppState {
         }
     }
 
-    func saveGraphPosition(_ position: GraphPosition?, nodeID: String, projectID: UUID) {
+    func graphModel(projectID: UUID) -> ServiceGraphModel? {
+        if let model = graphModels[projectID] { return model }
+        guard let graph = project(projectID)?.serviceGraph else { return nil }
+        let model = ServiceGraphModel(graph: graph) { [weak self] nodeID, position in
+            self?.saveGraphPosition(position, nodeID: nodeID, projectID: projectID)
+        }
+        graphModels[projectID] = model
+        return model
+    }
+
+    private func saveGraphPosition(_ position: GraphPosition?, nodeID: String, projectID: UUID) {
         guard let index = projects.firstIndex(where: { $0.id == projectID }) else { return }
         var positions = projects[index].savedGraphPositions ?? [:]
         positions[nodeID] = position
