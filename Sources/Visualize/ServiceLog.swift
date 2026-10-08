@@ -17,8 +17,9 @@ final class ServiceLog {
     private var diskLineOpen = false
     private var viewStream: Bool?
 
-    init(fileURL: URL) {
-        writer = LogFileWriter(url: fileURL)
+    init(fileURL: URL, retentionMB: Int = 40) {
+        writer = LogFileWriter(url: fileURL, limit: retentionMB * 1_000_000 / 4)
+        writer.setRetention(megabytes: retentionMB)
         writer.append(Data())
     }
 

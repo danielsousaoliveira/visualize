@@ -4,8 +4,6 @@ struct ProcessListenersView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @State private var pendingStop: DockerContainer?
-    @State private var lowerPort = 1024
-    @State private var upperPort = 65535
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -17,14 +15,6 @@ struct ProcessListenersView: View {
                     .keyboardShortcut(.cancelAction)
             }
             HStack {
-                Text("Ports")
-                TextField("From", value: $lowerPort, format: .number).frame(width: 84)
-                Text("to")
-                TextField("To", value: $upperPort, format: .number).frame(width: 84)
-                Button("Apply") {
-                    appState.listenerStore.lowerPort = lowerPort
-                    appState.listenerStore.upperPort = upperPort
-                }
                 Spacer()
                 if let scanned = appState.listenerStore.lastScan {
                     Text("Updated \(scanned.formatted(date: .omitted, time: .standard))").foregroundStyle(.secondary)
@@ -79,10 +69,7 @@ struct ProcessListenersView: View {
         } message: { container in
             Text("Stop \(container.name) (\(container.image), ID \(container.id.prefix(12))) on ports \(container.ports.map(String.init).joined(separator: ", "))?")
         }
-        .onAppear {
-            lowerPort = appState.listenerStore.lowerPort
-            upperPort = appState.listenerStore.upperPort
-        }
+
     }
 
     private func memory(_ bytes: UInt64?) -> String {

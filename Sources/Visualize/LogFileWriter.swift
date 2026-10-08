@@ -4,12 +4,60 @@ import Darwin
 final class LogFileWriter: @unchecked Sendable {
     let url: URL
     private let queue = DispatchQueue(label: "visualize.log-file")
-    private let limit: Int
+    private var limit: Int
     private var failure: String?
 
     init(url: URL, limit: Int = 10_000_000) {
         self.url = url
         self.limit = limit
+    }
+
+    func setRetention(megabytes: Int) {
+        queue.async { [self] in
+            limit = megabytes * 1_000_000 / 4
+            do {
+                for index in 0...3 {
+                    let path = index == 0 ? url.path : "\(url.path).\(index)"
+                    try keepNewestBytes(at: path)
+                }
+            } catch { failure = error.localizedDescription }
+        }
+    }
+
+    private func keepNewestBytes(at path: String) throws {
+        try verifyRegularFile(path)
+        let descriptor = open(path, O_RDWR | O_NOFOLLOW)
+        guard descriptor >= 0 else {
+            if errno == ENOENT { return }
+            throw systemError()
+        }
+        defer { close(descriptor) }
+        var metadata = stat()
+        guard fstat(descriptor, &metadata) == 0, (metadata.st_mode & S_IFMT) == S_IFREG else {
+            throw fileError("Log path is not a regular file")
+        }
+        guard metadata.st_size > limit else { return }
+        let start = metadata.st_size - off_t(limit)
+        var buffer = [UInt8](repeating: 0, count: min(limit, 65_536))
+        var offset = 0
+        while offset < limit {
+            let count = buffer.withUnsafeMutableBytes {
+                pread(descriptor, $0.baseAddress, min($0.count, limit - offset), start + off_t(offset))
+            }
+            if count < 0, errno == EINTR { continue }
+            guard count > 0 else { throw fileError("Could not read recent log output") }
+            var written = 0
+            while written < count {
+                let result = buffer.withUnsafeBytes {
+                    pwrite(descriptor, $0.baseAddress!.advanced(by: written), count - written, off_t(offset + written))
+                }
+                if result < 0, errno == EINTR { continue }
+                guard result > 0 else { throw systemError() }
+                written += result
+            }
+            offset += count
+        }
+        guard ftruncate(descriptor, off_t(limit)) == 0 else { throw systemError() }
     }
 
     func append(_ data: Data) {
