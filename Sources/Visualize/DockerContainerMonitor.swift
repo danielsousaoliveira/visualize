@@ -1,7 +1,7 @@
 import Foundation
 
 struct DockerContainerMonitor: Sendable {
-    static let detailFormat = #"{"Id":{{json .Id}},"Name":{{json .Name}},"Config":{"Image":{{json .Config.Image}},"Labels":{{json .Config.Labels}}},"State":{"Running":{{json .State.Running}},"Status":{{json .State.Status}}},"NetworkSettings":{"Ports":{{json .NetworkSettings.Ports}}}}"#
+    static let detailFormat = #"{"Id":{{json .Id}},"Name":{{json .Name}},"Config":{"Image":{{json .Config.Image}},"Labels":{{json .Config.Labels}}},"State":{"Running":{{json .State.Running}},"Status":{{json .State.Status}},"StartedAt":{{json .State.StartedAt}}},"NetworkSettings":{"Ports":{{json .NetworkSettings.Ports}}}}"#
 
     func scan(overridePath: String?) -> [DockerContainer] {
         guard let command = try? DockerCommand.connect(overridePath: overridePath),

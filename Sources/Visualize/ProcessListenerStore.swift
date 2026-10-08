@@ -54,7 +54,7 @@ final class ProcessListenerStore {
                     merge(projects: projects(), ownedAttribution: ownedAttribution)
                     lastScan = Date()
                 }
-                try? await Task.sleep(for: .seconds(2))
+                try? await Task.sleep(for: .seconds(1))
             }
         }
     }

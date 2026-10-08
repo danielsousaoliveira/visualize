@@ -8,6 +8,8 @@ struct DockerContainer: Sendable, Equatable {
     let ports: [Int]
     let labels: [String: String]
 
+    var startedAt: Date? = nil
+
     var composeProject: String? { labels["com.docker.compose.project"] }
     var composeService: String? { labels["com.docker.compose.service"] }
     var workingDirectory: String? { labels["com.docker.compose.project.working_dir"] }
@@ -36,7 +38,11 @@ struct DockerContainer: Sendable, Equatable {
             guard !ports.isEmpty else { return nil }
             return Self(id: id, name: String((row["Name"] as? String ?? id).drop(while: { $0 == "/" })),
                         image: image, status: state["Status"] as? String ?? "running", ports: ports,
-                        labels: config["Labels"] as? [String: String] ?? [:])
+                        labels: config["Labels"] as? [String: String] ?? [:], startedAt: (state["StartedAt"] as? String).flatMap { text in
+                            let formatter = ISO8601DateFormatter()
+                            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                            return formatter.date(from: text) ?? ISO8601DateFormatter().date(from: text)
+                        })
         }
     }
 
