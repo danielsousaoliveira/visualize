@@ -482,6 +482,14 @@ final class AppState {
         }
     }
 
+    func saveGraphPosition(_ position: GraphPosition?, nodeID: String, projectID: UUID) {
+        guard let index = projects.firstIndex(where: { $0.id == projectID }) else { return }
+        var positions = projects[index].savedGraphPositions ?? [:]
+        positions[nodeID] = position
+        projects[index].savedGraphPositions = positions
+        persist()
+    }
+
     private func persist() {
         guard canSave else { return }
         do {
