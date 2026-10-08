@@ -24,9 +24,16 @@ struct VisualizeApp: App {
             LibraryCommands(appState: appState)
         }
 
-        MenuBarExtra("visualize", systemImage: "circle.hexagongrid") {
+        MenuBarExtra {
             MenuBarPopover()
                 .environment(appState)
+        }
+        label: {
+            Label {
+                if !appState.listenerStore.listeners.isEmpty {
+                    Text(String(appState.listenerStore.listeners.count))
+                }
+            } icon: { Image(systemName: "circle.hexagongrid") }
         }
         .menuBarExtraStyle(.window)
     }
