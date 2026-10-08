@@ -5,6 +5,7 @@ struct Project: Identifiable, Hashable, Codable {
     var name: String
     var folderPath: String
     var lastResult: ScanResult?
+    var releaseSettings: ReleaseSettings?
     var savedGraphPositions: [String: GraphPosition]?
 
     var serviceGraph: ServiceGraph? {

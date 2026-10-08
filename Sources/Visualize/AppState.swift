@@ -6,6 +6,7 @@ import Observation
 @Observable
 final class AppState {
     private(set) var projects: [Project] = []
+    private var releaseOperations: [UUID: ReleaseOperation] = [:]
     private var graphModels: [UUID: ServiceGraphModel] = [:]
     let listenerStore = ProcessListenerStore()
     var runningServices: [RunningService] = []
@@ -508,6 +509,20 @@ final class AppState {
         var positions = projects[index].savedGraphPositions ?? [:]
         positions[nodeID] = position
         projects[index].savedGraphPositions = positions
+        persist()
+    }
+
+    func releaseOperation(project: Project) -> ReleaseOperation {
+        if let existing = releaseOperations[project.id], existing.folder == project.folderURL { return existing }
+        let root = store.fileURL.deletingLastPathComponent().appending(path: "Logs/\(project.id.uuidString)")
+        let operation = ReleaseOperation(folder: project.folderURL, logURL: root.appending(path: "release.log"))
+        releaseOperations[project.id] = operation
+        return operation
+    }
+
+    func saveReleaseSettings(_ settings: ReleaseSettings, projectID: UUID) {
+        guard let index = projects.firstIndex(where: { $0.id == projectID }) else { return }
+        projects[index].releaseSettings = settings
         persist()
     }
 
