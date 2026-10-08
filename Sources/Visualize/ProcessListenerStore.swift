@@ -10,6 +10,7 @@ final class ProcessListenerStore {
     private(set) var actionError: String?
     private(set) var busyContainers: Set<String> = []
     private var processes: [ProcessListener] = []
+    private var scannedDockerOverride: String?
     private var containers: [DockerContainer] = []
     private var dockerTask: Task<Void, Never>?
     private let monitor = ProcessListenerMonitor()
@@ -24,6 +25,7 @@ final class ProcessListenerStore {
                     let override = dockerOverride()
                     let result = await Task.detached(priority: .utility) { DockerContainerMonitor().scan(overridePath: override) }.value
                     guard !Task.isCancelled else { return }
+                    scannedDockerOverride = override
                     containers = result
                     merge(projects: projects())
                 }
@@ -70,12 +72,17 @@ final class ProcessListenerStore {
     }
 
     func perform(_ action: String, container: DockerContainer, overridePath: String?) async {
+        let allowedIDs = Set(listeners.compactMap { $0.container?.id }).intersection(containers.map(\.id))
+        guard allowedIDs.contains(container.id), scannedDockerOverride == overridePath else {
+            actionError = "Container is no longer in the displayed monitor results"
+            return
+        }
         guard busyContainers.insert(container.id).inserted else { return }
         defer { busyContainers.remove(container.id) }
         actionError = nil
         do {
             try await Task.detached(priority: .utility) {
-                try DockerContainerMonitor().perform(action, containerID: container.id, overridePath: overridePath)
+                try DockerContainerMonitor().perform(action, containerID: container.id, allowedContainerIDs: allowedIDs, overridePath: overridePath)
             }.value
             if action == "stop" {
                 containers.removeAll { $0.id == container.id }

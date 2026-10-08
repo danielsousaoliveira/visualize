@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ProcessListenersView: View {
     @Environment(AppState.self) private var appState
+    @State private var pendingStop: DockerContainer?
     @State private var lowerPort = 1024
     @State private var upperPort = 65535
 
@@ -56,7 +57,7 @@ struct ProcessListenersView: View {
                     TableColumn("Actions") { listener in
                         if let container = listener.container {
                             HStack {
-                                Button("Stop") { Task { await appState.listenerStore.perform("stop", container: container, overridePath: appState.dockerOverridePath) } }
+                                Button("Stop") { pendingStop = container }
                                 Button("Restart") { Task { await appState.listenerStore.perform("restart", container: container, overridePath: appState.dockerOverridePath) } }
                             }.disabled(appState.listenerStore.busyContainers.contains(container.id))
                         }
@@ -67,6 +68,14 @@ struct ProcessListenersView: View {
         }
         .padding(24)
         .navigationTitle("Ports")
+        .confirmationDialog("Stop container?", isPresented: Binding(get: { pendingStop != nil }, set: { if !$0 { pendingStop = nil } }), presenting: pendingStop) { container in
+            Button("Stop \(container.name)", role: .destructive) {
+                Task { await appState.listenerStore.perform("stop", container: container, overridePath: appState.dockerOverridePath) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { container in
+            Text("Stop \(container.name) (\(container.image), ID \(container.id.prefix(12))) on ports \(container.ports.map(String.init).joined(separator: ", "))?")
+        }
         .onAppear {
             lowerPort = appState.listenerStore.lowerPort
             upperPort = appState.listenerStore.upperPort
