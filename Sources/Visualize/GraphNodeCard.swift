@@ -5,8 +5,7 @@ struct GraphNodeCard: View {
     let project: Project
     let node: ServiceGraphNode
     let selected: Bool
-    @State private var pendingRecipe: RunRecipe?
-    @State private var confirming = false
+    static let size = CGSize(width: 216, height: 96)
 
     private var service: ScanService? { project.lastResult?.services.first { $0.id == node.id } }
     private var run: ServiceRun? { service.flatMap { appState.serviceRuns[appState.runKey(project: project, service: $0)] } }
@@ -40,44 +39,20 @@ struct GraphNodeCard: View {
                 Text(run?.status ?? "Stopped").font(.caption).lineLimit(1)
                 Spacer()
                 if let service, !ServiceMode.available(for: service).isEmpty {
-                    Button {
-                        if run?.active == true {
+                    if run?.active == true {
+                        Button {
                             Task { await appState.stop(project: project, service: service) }
-                        } else if appState.mode(project: project, service: service) != .local {
-                            Task { await appState.startDocker(project: project, service: service) }
-                        } else if let recipe = appState.recipe(project: project, service: service) {
-                            if appState.approved(recipe, project: project) {
-                                Task { await appState.start(project: project, service: service, recipe: recipe) }
-                            } else { pendingRecipe = recipe; confirming = true }
-                        }
-                    } label: {
-                        Image(systemName: run?.active == true ? "stop.fill" : "play.fill")
+                        } label: { Image(systemName: "stop.fill") }
+                        .accessibilityLabel("Stop \(node.name)")
+                        .disabled(run?.busy == true || run?.stopping == true || (run?.pid == nil && run?.docker == nil) || appState.projectOperations[project.id]?.busy == true)
+                    } else {
+                        ServicePlayButton(project: project, service: service, iconOnly: true)
                     }
-                    .accessibilityLabel("\(run?.active == true ? "Stop" : "Play") \(node.name)")
-                    .help(appState.dockerReason(project: project, service: service) ?? appState.mode(project: project, service: service).rawValue)
-                    .disabled(run?.busy == true || run?.stopping == true || (run?.active == true && run?.pid == nil && run?.docker == nil) || (run?.active != true && appState.dockerReason(project: project, service: service) != nil) || appState.projectOperations[project.id]?.busy == true)
                 }
             }
         }
-        .padding(12).frame(width: 216, height: 96)
+        .padding(12).frame(width: Self.size.width, height: Self.size.height)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(selected ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: selected ? 2 : 1))
-        .sheet(isPresented: $confirming) {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Run this command?").font(.title2)
-                Text(pendingRecipe?.displayCommand ?? "").font(.body.monospaced()).textSelection(.enabled)
-                Text(pendingRecipe?.workingDirectory ?? "").font(.callout.monospaced()).textSelection(.enabled)
-                HStack {
-                    Spacer()
-                    Button("Cancel") { confirming = false }.keyboardShortcut(.cancelAction)
-                    Button("Run") {
-                        if let service, let recipe = pendingRecipe {
-                            Task { await appState.start(project: project, service: service, recipe: recipe) }
-                        }
-                        confirming = false
-                    }.keyboardShortcut(.defaultAction)
-                }
-            }.padding(24).frame(minWidth: 480)
-        }
     }
 }

@@ -12,7 +12,6 @@ struct ProjectGraphView: View {
     @State private var draggingNode: String?
     @State private var dragPosition: GraphPosition?
     @State private var selected: String?
-    @State private var pinchOrigin: CGFloat?
 
     private var graph: ServiceGraph { model.graph }
 
@@ -38,7 +37,9 @@ struct ProjectGraphView: View {
                             }
                         }.padding(12)
                         ZStack(alignment: .topLeading) {
-                            GraphScrollView { x, y, command in
+                            GraphScrollView(onMagnify: { delta in
+                                changeZoom(zoom * max(0.01, 1 + delta), size: geometry.size)
+                            }) { x, y, command in
                                 if command { changeZoom(zoom * exp(y * 0.01), size: geometry.size) }
                                 else { offset.width += x; offset.height += y }
                             }
@@ -71,10 +72,6 @@ struct ProjectGraphView: View {
                             }
                         }
                         .clipped()
-                        .simultaneousGesture(MagnificationGesture().onChanged { value in
-                            if pinchOrigin == nil { pinchOrigin = zoom }
-                            changeZoom(pinchOrigin! * value, size: geometry.size)
-                        }.onEnded { _ in pinchOrigin = nil })
                         .background(Color.primary.opacity(0.025))
                     }
                     .onAppear { fit(geometry.size) }
@@ -105,19 +102,23 @@ struct ProjectGraphView: View {
 
     private func fit(_ size: CGSize) {
         let positions = graph.positions.values
-        guard let minX = positions.map(\.x).min(), let maxX = positions.map(\.x).max(),
-              let minY = positions.map(\.y).min(), let maxY = positions.map(\.y).max() else { return }
-        zoom = min(2, max(0.25, min(max(1, size.width - 64) / (maxX - minX + 240), max(1, size.height - 116) / (maxY - minY + 120))))
-        offset = CGSize(width: size.width / 2 - (minX + maxX) / 2 * zoom,
-                        height: max(0, size.height - 52) / 2 - (minY + maxY) / 2 * zoom)
+        guard let left = positions.map({ $0.x - GraphNodeCard.size.width / 2 }).min(),
+              let right = positions.map({ $0.x + GraphNodeCard.size.width / 2 }).max(),
+              let top = positions.map({ $0.y - GraphNodeCard.size.height / 2 }).min(),
+              let bottom = positions.map({ $0.y + GraphNodeCard.size.height / 2 }).max() else { return }
+        let canvasHeight = max(1, size.height - 52)
+        zoom = min(2, max(0.25, min(max(1, size.width - 64) / (right - left),
+                                   max(1, canvasHeight - 64) / (bottom - top))))
+        offset = CGSize(width: size.width / 2 - (left + right) / 2 * zoom,
+                        height: canvasHeight / 2 - (top + bottom) / 2 * zoom)
     }
 
     private func drawEdges(_ context: inout GraphicsContext) {
         for edge in graph.edges {
             guard let from = position(edge.from), let to = position(edge.to) else { continue }
             let direction: CGFloat = from.x <= to.x ? 1 : -1
-            let start = screen(GraphPosition(x: from.x + direction * 120, y: from.y))
-            let end = screen(GraphPosition(x: to.x - direction * 120, y: to.y))
+            let start = screen(GraphPosition(x: from.x + direction * GraphNodeCard.size.width / 2, y: from.y))
+            let end = screen(GraphPosition(x: to.x - direction * GraphNodeCard.size.width / 2, y: to.y))
             let bend = max(60 * zoom, abs(end.x - start.x) / 2)
             let selfEdge = edge.from == edge.to
             let c1 = CGPoint(x: start.x + direction * bend, y: selfEdge ? start.y - 140 * zoom : start.y)
