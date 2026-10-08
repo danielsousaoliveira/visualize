@@ -6,6 +6,7 @@ import Observation
 @Observable
 final class AppState {
     private(set) var projects: [Project] = []
+    let listenerStore = ProcessListenerStore()
     var runningServices: [RunningService] = []
     private(set) var serviceLogs: [String: ServiceLog] = [:]
     private(set) var serviceRuns: [String: ServiceRun] = [:]
@@ -94,6 +95,8 @@ final class AppState {
                 await OrderedOutputReader.drain(stdout: output, stderr: stderr.fileHandleForReading) { data, isError in
                     if let data { actual.append(data, isError: isError) }
                     else { log.finish(isError: isError) }
+                } failed: { message, isError in
+                    log.reportReadFailure(message, isError: isError)
                 }
                 await actual.finishOutput()
                 while kill(-pid, 0) == 0 { try? await Task.sleep(for: .milliseconds(100)) }
@@ -367,6 +370,7 @@ final class AppState {
         self.scanHelper = scanHelper
         self.store = store
         loadLibrary()
+        listenerStore.start { [weak self] in self?.projects ?? [] }
     }
 
     var selectedProject: Project? {

@@ -39,6 +39,12 @@ final class ServiceLog {
         else { stdout = LogStreamDecoder() }
     }
 
+    func reportReadFailure(_ message: String, isError: Bool) {
+        let stream = isError ? "stderr" : "stdout"
+        error = "Could not read \(stream) output: \(message)"
+        finish(isError: isError)
+    }
+
     private func consume(_ text: String, isError: Bool) {
         guard !text.isEmpty else { return }
         if viewStream != isError { partial.removeAll() }
