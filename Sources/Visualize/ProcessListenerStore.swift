@@ -72,6 +72,7 @@ final class ProcessListenerStore {
         scanInterval = interval
         lowerPort = lower
         upperPort = upper
+        processes.removeAll { !(lower...upper).contains($0.port) }
         listeners.removeAll { !(lower...upper).contains($0.port) }
     }
 
@@ -87,6 +88,7 @@ final class ProcessListenerStore {
         let upper = min(65535, max(1, upperPort))
         listeners = DockerContainerMonitor.merge(processes: processes.map { ownedAttribution($0) ?? PortAttribution.resolve($0, projects: projects) }, containers: containers, projects: projects,
                                                  ports: lower <= upper ? lower...upper : nil, dockerOwnership: dockerOwnership)
+            .filter { lower <= $0.port && $0.port <= upper }
     }
 
     func perform(_ action: String, container: DockerContainer, overridePath: String?) async {

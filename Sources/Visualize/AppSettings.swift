@@ -33,19 +33,22 @@ final class AppSettings {
     }
 
     func refreshLoginStatus() {
-        launchAtLogin = [.enabled, .requiresApproval].contains(SMAppService.mainApp.status)
-        if SMAppService.mainApp.status == .requiresApproval {
-            loginError = "Allow visualize in System Settings → General → Login Items."
-        }
+        let status = SMAppService.mainApp.status
+        launchAtLogin = [.enabled, .requiresApproval].contains(status)
+        loginError = status == .requiresApproval
+            ? "Allow visualize in System Settings → General → Login Items."
+            : nil
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {
         do {
             if enabled { try SMAppService.mainApp.register() }
             else { try SMAppService.mainApp.unregister() }
-            loginError = nil
-        } catch { loginError = error.localizedDescription }
-        refreshLoginStatus()
+            refreshLoginStatus()
+        } catch {
+            refreshLoginStatus()
+            loginError = error.localizedDescription
+        }
     }
 
     func setInterval(_ value: Int) {

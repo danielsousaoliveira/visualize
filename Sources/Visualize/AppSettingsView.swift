@@ -19,7 +19,10 @@ struct AppSettingsView: View {
                     TextField("Start", text: $lower).accessibilityLabel("Start port")
                     Text("to")
                     TextField("End", text: $upper).accessibilityLabel("End port")
-                }.frame(width: 200)
+                    Button("Apply") { settings.setRange(lower: lower, upper: upper) }
+                }
+                .frame(width: 270)
+                .onSubmit { settings.setRange(lower: lower, upper: upper) }
             }
             if let error = settings.rangeError { Text(error).foregroundStyle(.red) }
             Picker("Log retention per service", selection: Binding(get: { settings.logRetentionMB }, set: { settings.setRetention($0) })) {
@@ -37,8 +40,6 @@ struct AppSettingsView: View {
         .frame(width: 520)
         .fixedSize(horizontal: false, vertical: true)
         .onAppear { settings.refreshLoginStatus(); loadFields() }
-        .onChange(of: lower) { settings.setRange(lower: lower, upper: upper) }
-        .onChange(of: upper) { settings.setRange(lower: lower, upper: upper) }
         .onChange(of: docker) { settings.setDockerPath(docker) }
     }
 
