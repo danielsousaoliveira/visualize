@@ -41,7 +41,7 @@ struct DatabaseConnectionTests {
     func postgresConnectionRejectsWrites() async throws {
         var settings = DatabaseConnectionSettings()
         settings.port = try #require(Int(ProcessInfo.processInfo.environment["VISUALIZE_TEST_POSTGRES_PORT"] ?? ""))
-        settings.user = NSUserName()
+        settings.user = ProcessInfo.processInfo.environment["VISUALIZE_TEST_POSTGRES_USER"] ?? "visualize_reader"
         let password = ProcessInfo.processInfo.environment["VISUALIZE_TEST_POSTGRES_PASSWORD"] ?? ""
         let connection = try DatabaseConnection(settings: settings, password: password)
         #expect(try await connection.version().contains("PostgreSQL"))
@@ -50,8 +50,37 @@ struct DatabaseConnectionTests {
             _ = try await connection.execute("INSERT INTO visualize_read_only_fixture VALUES (2)")
             Issue.record("Postgres accepted a write")
         } catch { #expect(error.localizedDescription.contains("read-only transaction")) }
-        #expect(try await connection.execute("SELECT COUNT(*) FROM visualize_read_only_fixture") == "1")
+        _ = try await connection.execute("SET default_transaction_read_only = off")
+        #expect(try await connection.execute("SELECT has_table_privilege(current_user, 'visualize_read_only_fixture', 'INSERT')") == "f")
+        for (query, expected) in [
+            ("INSERT INTO visualize_read_only_fixture VALUES (3)", "read-only transaction"),
+            ("SET transaction_read_only = off", "must be set before any query"),
+            ("COMMIT; INSERT INTO visualize_read_only_fixture VALUES (4)", "multiple commands"),
+            ("SELECT set_config('transaction_read_only', 'off', false)", "must be set before any query")
+        ] {
+            do {
+                _ = try await connection.execute(query)
+                Issue.record("Postgres accepted a read-only bypass: \(query)")
+            } catch {
+                #expect(error.localizedDescription.contains(expected))
+            }
+            #expect(try await connection.execute("SELECT COUNT(*) FROM visualize_read_only_fixture") == "1")
+        }
         await connection.close()
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["VISUALIZE_TEST_POSTGRES_PORT"] != nil))
+    func postgresRejectsPrivilegedConnectionRoles() throws {
+        var settings = DatabaseConnectionSettings()
+        settings.port = try #require(Int(ProcessInfo.processInfo.environment["VISUALIZE_TEST_POSTGRES_PORT"] ?? ""))
+        let password = ProcessInfo.processInfo.environment["VISUALIZE_TEST_POSTGRES_PASSWORD"] ?? ""
+        for role in [ProcessInfo.processInfo.environment["VISUALIZE_TEST_POSTGRES_ADMIN"] ?? NSUserName(), "visualize_writer", "visualize_member"] {
+            settings.user = role
+            do {
+                _ = try DatabaseConnection(settings: settings, password: password)
+                Issue.record("Accepted privileged Postgres role: \(role)")
+            } catch { #expect(error.localizedDescription.contains("dedicated read-only Postgres role")) }
+        }
     }
 
     @Test(arguments: ["example.com", "::1", "127.0.0.2", "localhost.example.com", "/tmp", "localhost,example.com", ""])

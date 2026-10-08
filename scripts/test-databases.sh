@@ -27,7 +27,29 @@ chmod 600 "$cluster/password"
 "$postgres_bin/initdb" -D "$cluster/data" --auth-local=trust --auth-host=scram-sha-256 --pwfile="$cluster/password" --no-locale >/dev/null
 "$postgres_bin/pg_ctl" -D "$cluster/data" -l "$cluster/server.log" -o "-h 127.0.0.1 -p $port -k $cluster" -w start >/dev/null
 started=true
-PGPASSWORD=fixture-secret "$postgres_bin/psql" -h 127.0.0.1 -p "$port" -d postgres -c 'CREATE TABLE visualize_read_only_fixture (id INTEGER); INSERT INTO visualize_read_only_fixture VALUES (1);' >/dev/null
+PGPASSWORD=fixture-secret "$postgres_bin/psql" -h 127.0.0.1 -p "$port" -d postgres -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
+CREATE TABLE visualize_read_only_fixture (id INTEGER);
+INSERT INTO visualize_read_only_fixture VALUES (1);
+REVOKE CREATE, TEMP ON DATABASE postgres FROM PUBLIC;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+CREATE ROLE visualize_reader LOGIN PASSWORD 'fixture-secret';
+GRANT CONNECT ON DATABASE postgres TO visualize_reader;
+GRANT USAGE ON SCHEMA public TO visualize_reader;
+GRANT SELECT ON visualize_read_only_fixture TO visualize_reader;
+CREATE ROLE visualize_writer LOGIN PASSWORD 'fixture-secret';
+GRANT SELECT, INSERT ON visualize_read_only_fixture TO visualize_writer;
+CREATE ROLE visualize_member LOGIN PASSWORD 'fixture-secret';
+GRANT visualize_writer TO visualize_member;
+SQL
+if PGPASSWORD=fixture-secret "$postgres_bin/psql" -h 127.0.0.1 -p "$port" -U visualize_reader -d postgres -v ON_ERROR_STOP=1 \
+    -c 'SET default_transaction_read_only = off; INSERT INTO visualize_read_only_fixture VALUES (99);' > "$cluster/role-check.log" 2>&1; then
+    echo "The reader role accepted a write" >&2
+    exit 1
+fi
+if ! grep -q 'permission denied' "$cluster/role-check.log"; then
+    cat "$cluster/role-check.log" >&2
+    exit 1
+fi
 cd "$repo_root"
 developer_dir="$(xcode-select -p)"
 testing_flags=()
@@ -42,4 +64,4 @@ if [[ "${VISUALIZE_STATIC_POSTGRES:-0}" == 1 ]]; then
     source "$repo_root/scripts/postgres-build-flags.sh"
     configuration=release
 fi
-VISUALIZE_TEST_POSTGRES_PORT="$port" VISUALIZE_TEST_POSTGRES_PASSWORD=fixture-secret swift test -c "$configuration" "${testing_flags[@]}" "${postgres_flags[@]}" --filter DatabaseConnectionTests
+VISUALIZE_TEST_POSTGRES_PORT="$port" VISUALIZE_TEST_POSTGRES_USER=visualize_reader VISUALIZE_TEST_POSTGRES_ADMIN="$(id -un)" VISUALIZE_TEST_POSTGRES_PASSWORD=fixture-secret swift test -c "$configuration" "${testing_flags[@]}" "${postgres_flags[@]}" --filter DatabaseConnectionTests

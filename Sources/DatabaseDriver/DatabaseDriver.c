@@ -1,4 +1,5 @@
 #include "DatabaseDriver.h"
+#include "PostgresReadOnlyRole.h"
 #include <sqlite3.h>
 #include <dlfcn.h>
 #include <stdlib.h>
@@ -13,9 +14,11 @@ struct VDConnection {
     void *postgres;
     void *(*connect)(const char *const *, const char *const *, int);
     int (*status)(const void *);
+    int (*transaction_status)(const void *);
     char *(*error)(const void *);
     void (*finish)(void *);
     void *(*exec)(void *, const char *);
+    void *(*exec_params)(void *, const char *, int, const unsigned int *, const char *const *, const int *, const int *, int);
     int (*result_status)(const void *);
     char *(*result_error)(const void *);
     char *(*value)(const void *, int, int);
@@ -68,9 +71,11 @@ VDConnection *vd_postgres_open(const char *library, const char *port, const char
 #endif
     LOAD(connect, PQconnectdbParams)
     LOAD(status, PQstatus)
+    LOAD(transaction_status, PQtransactionStatus)
     LOAD(error, PQerrorMessage)
     LOAD(finish, PQfinish)
     LOAD(exec, PQexec)
+    LOAD(exec_params, PQexecParams)
     LOAD(result_status, PQresultStatus)
     LOAD(result_error, PQresultErrorMessage)
     LOAD(value, PQgetvalue)
@@ -79,7 +84,7 @@ VDConnection *vd_postgres_open(const char *library, const char *port, const char
     LOAD(clear, PQclear)
 #undef LOAD
     const char *keys[] = { "host", "hostaddr", "port", "user", "password", "dbname", "options", "connect_timeout", "sslmode", "gssencmode", "passfile", "application_name", NULL };
-    const char *values[] = { "127.0.0.1", "127.0.0.1", port, user, password, database, "-c default_transaction_read_only=on -c statement_timeout=5000 -c lock_timeout=5000", "5", "disable", "disable", "/dev/null", "visualize", NULL };
+    const char *values[] = { "127.0.0.1", "127.0.0.1", port, user, password, database, "-c default_transaction_read_only=on -c statement_timeout=5000 -c lock_timeout=5000 -c search_path=pg_catalog,public", "5", "disable", "disable", "/dev/null", "visualize", NULL };
     connection->postgres = connection->connect(keys, values, 0);
     if (!connection->postgres || connection->status(connection->postgres) != 0) {
         *error = strdup(connection->postgres ? connection->error(connection->postgres) : "Could not allocate Postgres connection");
@@ -104,6 +109,17 @@ static int first_value(void *context, int count, char **values, char **names) {
     return 0;
 }
 
+static int postgres_rollback(VDConnection *connection, char **error) {
+    if (connection->transaction_status(connection->postgres) == 0) return 1;
+    void *result = connection->exec(connection->postgres, "ROLLBACK");
+    int success = result && connection->result_status(result) == 1;
+    if (!success && !*error) {
+        *error = strdup(result ? connection->result_error(result) : connection->error(connection->postgres));
+    }
+    if (result) connection->clear(result);
+    return success;
+}
+
 char *vd_query(VDConnection *connection, const char *sql, char **error) {
     if (connection->sqlite) {
         char *message = NULL;
@@ -116,15 +132,36 @@ char *vd_query(VDConnection *connection, const char *sql, char **error) {
         }
         return value ? value : strdup("");
     }
-    void *result = connection->exec(connection->postgres, sql);
-    if (!result) { *error = strdup(connection->error(connection->postgres)); return NULL; }
-    int status = connection->result_status(result);
-    if (status != 1 && status != 2) {
-        *error = strdup(connection->result_error(result));
-        connection->clear(result);
+    if (!postgres_rollback(connection, error)) return NULL;
+    void *begin = connection->exec(connection->postgres, "BEGIN READ ONLY");
+    if (!begin || connection->result_status(begin) != 1) {
+        *error = strdup(begin ? connection->result_error(begin) : connection->error(connection->postgres));
+        if (begin) connection->clear(begin);
         return NULL;
     }
-    char *value = strdup(connection->rows(result) && connection->columns(result) ? connection->value(result, 0, 0) : "");
-    connection->clear(result);
+    connection->clear(begin);
+    void *policy = connection->exec_params(connection->postgres, vd_read_only_role_query, 0, NULL, NULL, NULL, NULL, 0);
+    if (!policy || connection->result_status(policy) != 2 || !connection->rows(policy)
+        || strcmp(connection->value(policy, 0, 0), "safe")) {
+        *error = strdup(!policy ? connection->error(connection->postgres)
+            : connection->result_status(policy) != 2 ? connection->result_error(policy) : vd_read_only_role_error);
+        if (policy) connection->clear(policy);
+        postgres_rollback(connection, error);
+        return NULL;
+    }
+    connection->clear(policy);
+    void *result = connection->exec_params(connection->postgres, sql, 0, NULL, NULL, NULL, NULL, 0);
+    char *value = NULL;
+    if (!result) { *error = strdup(connection->error(connection->postgres)); }
+    else {
+        int status = connection->result_status(result);
+        if (status != 1 && status != 2) { *error = strdup(connection->result_error(result)); }
+        else { value = strdup(connection->rows(result) && connection->columns(result) ? connection->value(result, 0, 0) : ""); }
+        connection->clear(result);
+    }
+    if (!postgres_rollback(connection, error)) {
+        free(value);
+        value = NULL;
+    }
     return value;
 }

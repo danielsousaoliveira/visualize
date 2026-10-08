@@ -41,6 +41,10 @@ struct DatabaseConnectionsView: View {
                 }
                 if loading { ProgressView().controlSize(.small) }
             }
+            if settings.engine == .postgres {
+                Text("Postgres requires a dedicated reader role. Connections with write or administrative privileges are rejected.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
             Form {
                 TextField("Name", text: $settings.name)
                 Picker("Engine", selection: $settings.engine) {
