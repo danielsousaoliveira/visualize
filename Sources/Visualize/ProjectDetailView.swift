@@ -3,6 +3,7 @@ import SwiftUI
 struct ProjectDetailView: View {
     @Environment(AppState.self) private var appState
     @State private var showRelease = false
+    @State private var showDatabaseConnections = false
     @State private var graphSelected = false
     @State private var logServiceID: String?
     @State private var pendingStartMode: ProjectStartMode?
@@ -37,8 +38,13 @@ struct ProjectDetailView: View {
             }
         }
         .toolbar {
+            Button("Connect", systemImage: "externaldrive") { showDatabaseConnections = true }
+                .disabled(!project.folderExists)
             Button("Push to production", systemImage: "arrow.up.circle") { showRelease = true }
                 .disabled(!project.folderExists)
+        }
+        .sheet(isPresented: $showDatabaseConnections) {
+            DatabaseConnectionsView(project: project)
         }
         .sheet(isPresented: $showRelease) {
             VStack(alignment: .trailing) {
