@@ -23,6 +23,18 @@ struct OwnedProcessGroupTests {
         #expect(OwnedProcessGroup.capture(getpgrp()) == nil)
     }
 
+    @Test func oneMicrosecondIdentityMismatchSendsNoSignal() async throws {
+        let (pid, output) = try launch(["/bin/sleep", "30"])
+        defer { kill(-pid, SIGKILL); var status: Int32 = 0; waitpid(pid, &status, 0); try? output.close() }
+        let group = try #require(OwnedProcessGroup.capture(pid))
+        let wrong = OwnedProcessGroup(pid: pid, seconds: group.seconds, microseconds: group.microseconds + 1)
+        #expect(!wrong.signal(SIGTERM))
+        #expect(group.exists)
+        #expect(!OwnedProcessGroup(pid: pid, seconds: group.seconds, microseconds: group.microseconds).contains(
+            PortOwner(port: 8123, pid: pid, name: "sleep", uid: getuid(), seconds: nil, microseconds: nil, workingDirectory: nil)
+        ))
+    }
+
     @Test func killsTermIgnoringGroupAfterFiveSeconds() async throws {
         let (pid, output) = try launch(["/usr/bin/perl", "-e", "$SIG{TERM} = 'IGNORE'; $| = 1; print qq(ready\\n); sleep 30;"])
         defer { kill(-pid, SIGKILL); var status: Int32 = 0; waitpid(pid, &status, 0); try? output.close() }

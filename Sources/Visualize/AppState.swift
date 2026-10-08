@@ -6,6 +6,7 @@ import Observation
 @Observable
 final class AppState {
     private(set) var projects: [Project] = []
+    let listenerStore = ProcessListenerStore()
     var runningServices: [RunningService] = []
     private(set) var serviceLogs: [String: ServiceLog] = [:]
     private(set) var serviceRuns: [String: ServiceRun] = [:]
@@ -367,6 +368,7 @@ final class AppState {
         self.scanHelper = scanHelper
         self.store = store
         loadLibrary()
+        listenerStore.start { [weak self] in self?.projects ?? [] }
     }
 
     var selectedProject: Project? {

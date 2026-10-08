@@ -6,6 +6,7 @@ struct MainWindow: View {
 
     @Environment(AppState.self) private var appState
     @State private var pendingRemoval: Project?
+    @State private var showingPorts = false
 
     var body: some View {
         NavigationSplitView {
@@ -16,11 +17,15 @@ struct MainWindow: View {
                     ToolbarItem {
                         Button("Add project", systemImage: "plus", action: addProject)
                     }
+                    ToolbarItem {
+                        Button("Listening ports", systemImage: "dot.radiowaves.left.and.right") { showingPorts = true }
+                    }
                 }
         } detail: {
             detail
         }
         .frame(minWidth: 720, minHeight: 440)
+        .sheet(isPresented: $showingPorts) { ProcessListenersView().environment(appState).frame(minWidth: 780, minHeight: 420) }
         .sheet(item: Binding(get: { appState.portConflict }, set: { appState.portConflict = $0 })) { conflict in
             PortConflictSheet(conflict: conflict)
         }
