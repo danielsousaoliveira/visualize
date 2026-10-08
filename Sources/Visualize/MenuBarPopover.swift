@@ -29,11 +29,12 @@ struct MenuBarPopover: View {
                             HStack {
                                 Text(group.name).font(.headline).lineLimit(1)
                                 Spacer()
-                                if group.id != "other" {
-                                    Button("Stop all") {
-                                        Task { await appState.widgetStopAll(group) }
+                                if group.id != "other" && appState.widgetStopManagedAvailable(group) {
+                                    Button("Stop managed") {
+                                        Task { await appState.widgetStopManaged(group) }
                                     }
                                     .font(.caption)
+                                    .help("Stop processes started by visualize and this project’s containers")
                                 }
                             }
                             ForEach(group.listeners) { listener in
@@ -86,7 +87,7 @@ struct MenuBarPopover: View {
             Button("Stop \(listener.serviceName ?? listener.name)", role: .destructive) { act(listener) }
             Button("Cancel", role: .cancel) {}
         } message: { listener in
-            Text("Stop the service on port \(listener.port)? External processes and their descendants receive SIGTERM.")
+            Text("Stop the service on port \(listener.port)? The external listening process receives SIGTERM.")
         }
     }
 

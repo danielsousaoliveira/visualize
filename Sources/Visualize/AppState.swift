@@ -776,7 +776,16 @@ extension AppState {
         }
     }
 
-    func widgetStopAll(_ group: ProcessListenerGroup) async {
+    func widgetStopManagedAvailable(_ group: ProcessListenerGroup) -> Bool {
+        if let id = group.listeners.first?.libraryProjectID,
+           launchedServices[id, default: [:]].values.contains(where: { service in
+               serviceRuns["\(id.uuidString):\(service.id)"].map { $0.active && $0.docker == nil } == true
+           }) { return true }
+        let ids = Set(group.listeners.map(\.id))
+        return listenerStore.listeners.contains { ids.contains($0.id) && ($0.container != nil || widgetService($0) != nil) }
+    }
+
+    func widgetStopManaged(_ group: ProcessListenerGroup) async {
         if let id = group.listeners.first?.libraryProjectID,
            let project = projects.first(where: { $0.id == id }) ?? launchedProjects[id] {
             for service in launchedServices[id, default: [:]].values {
