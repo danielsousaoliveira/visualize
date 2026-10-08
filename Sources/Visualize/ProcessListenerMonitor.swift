@@ -2,13 +2,21 @@ import Foundation
 import Darwin
 
 final class ProcessListenerMonitor: @unchecked Sendable {
+    private static let timebase: mach_timebase_info_data_t = {
+        var info = mach_timebase_info_data_t()
+        mach_timebase_info(&info)
+        return info
+    }()
     private var previousCPU: [ProcessIdentity: (UInt64, ContinuousClock.Instant)] = [:]
 
     func scan(ports: ClosedRange<Int> = 1024...65535, projects: [Project]) -> [ProcessListener] {
         let records = Self.discover(ports: ports)
-        let trees = Dictionary(uniqueKeysWithValues: Set(records.map(\.pid)).map { ($0, Self.descendants(of: $0)) })
+        let parents = Self.processParents()
+        let trees = Dictionary(uniqueKeysWithValues: Set(records.map(\.pid)).map { ($0, Self.descendants(of: $0, parents: parents)) })
         var samples: [Int32: Sample] = [:]
         for pid in Set(trees.values.flatMap { $0 }) { samples[pid] = sample(pid) }
+        let observed = Set(samples.values.compactMap(\.identity))
+        previousCPU = previousCPU.filter { observed.contains($0.key) }
         return records.compactMap { record in
             guard let sample = samples[record.pid], sample.identity != nil,
                   !sample.executablePath.split(separator: "/").contains(where: { $0.hasSuffix(".app") }) else { return nil }
@@ -40,7 +48,7 @@ final class ProcessListenerMonitor: @unchecked Sendable {
     }
 
     private static func discover(ports: ClosedRange<Int>) -> [Record] {
-        guard let output = try? CommandOutput.run("/usr/sbin/lsof", arguments: ["-nP", "-iTCP", "-sTCP:LISTEN"]),
+        guard let output = try? CommandOutput.run("/usr/sbin/lsof", arguments: ["-nP", "-l", "-iTCP", "-sTCP:LISTEN"]),
               output.status == 0 || output.status == 1 else { return [] }
         var records: [Record] = []
         let lines = String(decoding: output.data, as: UTF8.self).split(separator: "\n")
@@ -62,10 +70,10 @@ final class ProcessListenerMonitor: @unchecked Sendable {
         return Int(local[local.index(after: colon)...])
     }
 
-    private static func descendants(of root: Int32) -> [Int32] {
+    private static func processParents() -> [Int32: Int32] {
         var buffer = [Int32](repeating: 0, count: 131_072)
         let count = buffer.withUnsafeMutableBytes { proc_listallpids($0.baseAddress, Int32($0.count)) }
-        guard count > 0 else { return [root] }
+        guard count > 0 else { return [:] }
         let pids = buffer.prefix(Int(count))
         var parents: [Int32: Int32] = [:]
         for offset in stride(from: 0, to: pids.count, by: 256) {
@@ -78,6 +86,10 @@ final class ProcessListenerMonitor: @unchecked Sendable {
                 parents[pid] = info.kp_eproc.e_ppid
             }
         }
+        return parents
+    }
+
+    private static func descendants(of root: Int32, parents: [Int32: Int32]) -> [Int32] {
         var result: Set<Int32> = [root]
         var changed = true
         while changed {
@@ -106,7 +118,11 @@ final class ProcessListenerMonitor: @unchecked Sendable {
         let now = ContinuousClock.now
         let cpu = usage.map { value in
             previousCPU[identity].map { previous in
-                Double(value.ri_user_time &+ value.ri_system_time &- previous.0) / max(0.001, Double(previous.1.duration(to: now).components.seconds)) / 10_000
+                let ticks = value.ri_user_time &+ value.ri_system_time &- previous.0
+                let nanoseconds = Double(ticks) * Double(Self.timebase.numer) / Double(Self.timebase.denom)
+                let elapsed = previous.1.duration(to: now).components
+                let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+                return nanoseconds / max(0.001, seconds) / 1e7
             }
         }
         if let usage { previousCPU[identity] = (usage.ri_user_time &+ usage.ri_system_time, now) }
@@ -114,8 +130,12 @@ final class ProcessListenerMonitor: @unchecked Sendable {
     }
 
     private static func resourceUsage(_ pid: Int32) -> rusage_info_v0? {
-        var pointer: rusage_info_t?
-        guard proc_pid_rusage(pid, RUSAGE_INFO_CURRENT, &pointer) == 0, let pointer else { return nil }
-        return pointer.assumingMemoryBound(to: rusage_info_v0.self).pointee
+        var usage = rusage_info_v0()
+        let status = withUnsafeMutablePointer(to: &usage) { pointer in
+            pointer.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) {
+                proc_pid_rusage(pid, RUSAGE_INFO_V0, $0)
+            }
+        }
+        return status == 0 ? usage : nil
     }
 }

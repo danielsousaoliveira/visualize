@@ -41,6 +41,10 @@ struct ProcessListenersView: View {
         }
         .padding(24)
         .navigationTitle("Ports")
+        .onAppear {
+            lowerPort = appState.listenerStore.lowerPort
+            upperPort = appState.listenerStore.upperPort
+        }
     }
 
     private func memory(_ bytes: UInt64?) -> String {

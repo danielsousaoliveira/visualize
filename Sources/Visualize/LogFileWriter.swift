@@ -25,7 +25,6 @@ final class LogFileWriter: @unchecked Sendable {
                     guard fstat(descriptor, &metadata) == 0, (metadata.st_mode & S_IFMT) == S_IFREG else { throw fileError("Log path is not a regular file") }
                     let size = Int(metadata.st_size)
                     if size >= limit {
-                        close(descriptor)
                         try rotate()
                         continue
                     }

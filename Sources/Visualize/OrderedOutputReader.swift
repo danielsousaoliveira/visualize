@@ -45,11 +45,9 @@ struct OrderedOutputReader {
                         var count: Int
                         repeat { count = read(current[index].0.fileDescriptor, &bytes, bytes.count) } while count < 0 && errno == EINTR
                         if count < 0 { chunks.append(readResult(count, error: errno, isError: current[index].1)) }
-                        else {
-                            var chunk = readResult(count, isError: current[index].1)
-                            if count > 0 { chunk = Chunk(data: Data(bytes.prefix(count)), isError: current[index].1, failure: nil) }
-                            chunks.append(chunk)
-                        }
+                        else if count > 0 {
+                            chunks.append(Chunk(data: Data(bytes.prefix(count)), isError: current[index].1, failure: nil))
+                        } else { chunks.append(readResult(0, isError: current[index].1)) }
                     }
                     continuation.resume(returning: chunks)
                 }
