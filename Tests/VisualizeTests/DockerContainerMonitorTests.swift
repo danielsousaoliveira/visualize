@@ -7,7 +7,7 @@ struct DockerContainerMonitorTests {
 
     private func fixture() -> String {
         """
-        {"Id":"\(id)","Name":"/shop-db-1","Config":{"Image":"postgres:16","Labels":{"com.docker.compose.project":"shop","com.docker.compose.service":"db","com.docker.compose.project.working_dir":"/tmp/shop","visualize.project":"shop-api","visualize.service":"database"}},"State":{"Running":true,"Status":"running"},"NetworkSettings":{"Ports":{"5432/tcp":[{"HostIp":"0.0.0.0","HostPort":"5433"},{"HostIp":"::","HostPort":"5433"}],"80/tcp":null,"53/udp":[{"HostPort":"5353"}]}}}
+        {"Id":"\(id)","Name":"/shop-db-1","Config":{"Image":"postgres:16","Labels":{"com.docker.compose.project":"shop","com.docker.compose.service":"db","com.docker.compose.project.working_dir":"/tmp/shop","visualize.owner":"test-owner","visualize.project":"shop-api","visualize.service":"database"}},"State":{"Running":true,"Status":"running"},"NetworkSettings":{"Ports":{"5432/tcp":[{"HostIp":"0.0.0.0","HostPort":"5433"},{"HostIp":"::","HostPort":"5433"}],"80/tcp":null,"53/udp":[{"HostPort":"5353"}]}}}
         """
     }
 
@@ -75,17 +75,62 @@ struct DockerContainerMonitorTests {
         defer { stub.remove() }
         let monitor = DockerContainerMonitor()
         #expect(monitor.scan(overridePath: stub.executable.path).first?.image == "postgres:16")
-        try monitor.perform("restart", containerID: id, allowedContainerIDs: [id], overridePath: stub.executable.path)
+        try monitor.perform("restart", containerID: id, allowedContainerIDs: [id], overridePath: stub.executable.path, dockerOwnership: "test-owner")
         try monitor.perform("stop", containerID: id, allowedContainerIDs: [id], overridePath: stub.executable.path)
         let calls = try String(contentsOf: stub.file("calls"), encoding: .utf8)
         #expect(calls == "ps\ninspect\ninspect\nrestart\ninspect\nstop\n")
+    }
+
+    @Test func actionsRejectChangedConfirmationAndForeignOwnership() throws {
+        let target = try #require(DockerContainer.decode(Data("[\(fixture())]".utf8)).first)
+        for row in [fixture().replacingOccurrences(of: "shop-db-1", with: "renamed-db"),
+                    fixture().replacingOccurrences(of: "postgres:16", with: "postgres:17"),
+                    fixture().replacingOccurrences(of: "5433", with: "5434")] {
+            let helper = try stub(rowOverride: row)
+            defer { helper.remove() }
+            #expect(throws: (any Error).self) {
+                try DockerContainerMonitor().perform("stop", containerID: id, allowedContainerIDs: [id], overridePath: helper.executable.path, expectedContainer: target)
+            }
+            #expect(try String(contentsOf: helper.file("calls"), encoding: .utf8) == "inspect\n")
+        }
+        let helper = try stub()
+        defer { helper.remove() }
+        for token in [nil, "foreign-owner", ""] as [String?] {
+            #expect(throws: (any Error).self) {
+                try DockerContainerMonitor().perform("restart", containerID: id, allowedContainerIDs: [id], overridePath: helper.executable.path, expectedContainer: target, dockerOwnership: token)
+            }
+        }
+        try DockerContainerMonitor().perform("restart", containerID: id, allowedContainerIDs: [id], overridePath: helper.executable.path, expectedContainer: target, dockerOwnership: "test-owner")
+        #expect(try String(contentsOf: helper.file("calls"), encoding: .utf8) == "inspect\ninspect\ninspect\ninspect\nrestart\n")
+    }
+
+    @Test @MainActor func storeRejectsStaleConfirmationAndSpoofedRestart() async throws {
+        let helper = try stub()
+        defer { helper.remove() }
+        let target = try #require(DockerContainer.decode(Data("[\(fixture())]".utf8)).first)
+        let store = ProcessListenerStore()
+        defer { store.stop() }
+        store.start(dockerOwnership: "foreign-owner", projects: { [] }, dockerOverride: { helper.executable.path })
+        for _ in 0..<100 {
+            if store.listeners.contains(where: { $0.container?.id == id }) { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(store.listeners.contains { $0.container?.id == id })
+        let stale = DockerContainer(id: target.id, name: target.name, image: target.image, status: target.status, ports: [9999], labels: target.labels)
+        await store.perform("stop", container: stale, overridePath: helper.executable.path)
+        #expect(store.actionError?.contains("details changed") == true)
+        await store.perform("restart", container: target, overridePath: helper.executable.path)
+        #expect(store.actionError?.contains("only restart") == true)
+        let calls = try String(contentsOf: helper.file("calls"), encoding: .utf8)
+        #expect(!calls.split(separator: "\n").contains("stop"))
+        #expect(!calls.split(separator: "\n").contains("restart"))
     }
 
     @Test func missingContainerRefusesAction() throws {
         let stub = try stub(missing: true)
         defer { stub.remove() }
         #expect(throws: (any Error).self) {
-            try DockerContainerMonitor().perform("restart", containerID: id, allowedContainerIDs: [id], overridePath: stub.executable.path)
+            try DockerContainerMonitor().perform("restart", containerID: id, allowedContainerIDs: [id], overridePath: stub.executable.path, dockerOwnership: "test-owner")
         }
         #expect(try String(contentsOf: stub.file("calls"), encoding: .utf8) == "inspect\n")
     }
@@ -117,7 +162,9 @@ struct DockerContainerMonitorTests {
             let before = try #require(monitor.scan(overridePath: nil).first { $0.id == containerID })
             #expect(before.ports == [5433])
             #expect(before.image == "postgres:16")
-            try monitor.perform("restart", containerID: containerID, allowedContainerIDs: [containerID], overridePath: nil)
+            #expect(throws: (any Error).self) {
+                try monitor.perform("restart", containerID: containerID, allowedContainerIDs: [containerID], overridePath: nil)
+            }
             #expect(monitor.scan(overridePath: nil).contains { $0.id == containerID && $0.status == "running" })
             try monitor.perform("stop", containerID: containerID, allowedContainerIDs: [containerID], overridePath: nil)
             #expect(!monitor.scan(overridePath: nil).contains { $0.id == containerID })

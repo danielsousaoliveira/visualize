@@ -31,38 +31,38 @@ struct ProcessListenersView: View {
             if appState.listenerStore.listeners.isEmpty {
                 ContentUnavailableView("No matching listeners", systemImage: "dot.radiowaves.left.and.right", description: Text("User-owned TCP listeners appear here."))
             } else {
-                Table(appState.listenerStore.listeners) {
-                    TableColumn("Port") { Text(String($0.port)).monospacedDigit() }.width(min: 55, ideal: 65)
-                    TableColumn("Listener") { listener in
-                        VStack(alignment: .leading) {
-                            Text(listener.name)
-                            Text(listener.container.map { "\($0.image) · \($0.status)" } ?? "pid \(listener.pid)")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }.width(min: 100, ideal: 145)
-                    TableColumn("Project") { listener in
-                        VStack(alignment: .leading) {
-                            Text(listener.projectName ?? "—")
-                            if let container = listener.container {
-                                let compose = [container.composeProject, container.composeService].compactMap { $0 }.joined(separator: " / ")
-                                let visualize = [container.visualizeProject, container.visualizeService].compactMap { $0 }.joined(separator: " / ")
-                                if !compose.isEmpty { Text(compose).font(.caption).foregroundStyle(.secondary) }
-                                if !visualize.isEmpty { Text(visualize).font(.caption).foregroundStyle(.secondary) }
-                            }
-                            if let branch = listener.gitBranch { Text(branch).font(.caption).foregroundStyle(.secondary) }
-                        }
-                    }.width(min: 100, ideal: 150)
-                    TableColumn("Working directory") { Text($0.workingDirectory ?? "—").lineLimit(1).help($0.workingDirectory ?? "") }.width(min: 180, ideal: 270)
-                    TableColumn("CPU") { Text($0.cpuPercent.map { String(format: "%.1f%%", $0) } ?? "—").monospacedDigit() }.width(min: 55, ideal: 65)
-                    TableColumn("Actions") { listener in
-                        if let container = listener.container {
-                            HStack {
-                                Button("Stop") { pendingStop = container }
-                                Button("Restart") { Task { await appState.listenerStore.perform("restart", container: container, overridePath: appState.dockerOverridePath) } }
-                            }.disabled(appState.listenerStore.busyContainers.contains(container.id))
-                        }
-                    }.width(min: 140, ideal: 150)
-                    TableColumn("Memory") { Text(memory($0.memoryBytes)).monospacedDigit() }.width(min: 70, ideal: 85)
+                ScrollView {
+                    ForEach(ProcessListenerGroup.groups(appState.listenerStore.listeners)) { group in
+                        Text(group.name).font(.headline).frame(maxWidth: .infinity, alignment: .leading)
+                        Table(group.listeners) {
+                            TableColumn("Port") { Text(String($0.port)).monospacedDigit() }.width(min: 55, ideal: 65)
+                            TableColumn("Listener") { listener in
+                                VStack(alignment: .leading) {
+                                    Text(listener.name)
+                                    Text(listener.container.map { "\($0.image) · \($0.status)" } ?? "pid \(listener.pid)")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                            }.width(min: 100, ideal: 145)
+                            TableColumn("Project") { listener in
+                                VStack(alignment: .leading) {
+                                    Text(listener.attributionLabel)
+                                    Text(listener.attributionGroup).font(.caption).foregroundStyle(.secondary)
+                                    if let branch = listener.gitBranch { Text(branch).font(.caption).foregroundStyle(.secondary) }
+                                }
+                            }.width(min: 100, ideal: 150)
+                            TableColumn("Working directory") { Text($0.workingDirectory ?? "—").lineLimit(1).help($0.workingDirectory ?? "") }.width(min: 180, ideal: 270)
+                            TableColumn("CPU") { Text($0.cpuPercent.map { String(format: "%.1f%%", $0) } ?? "—").monospacedDigit() }.width(min: 55, ideal: 65)
+                            TableColumn("Actions") { listener in
+                                if let container = listener.container {
+                                    HStack {
+                                        Button("Stop") { pendingStop = container }
+                                        Button("Restart") { Task { await appState.listenerStore.perform("restart", container: container, overridePath: appState.dockerOverridePath) } }.disabled(!listener.startedByVisualize)
+                                    }.disabled(appState.listenerStore.busyContainers.contains(container.id))
+                                }
+                            }.width(min: 140, ideal: 150)
+                            TableColumn("Memory") { Text(memory($0.memoryBytes)).monospacedDigit() }.width(min: 70, ideal: 85)
+                        }.frame(height: CGFloat(group.listeners.count * 48 + 32))
+                    }
                 }
             }
         }

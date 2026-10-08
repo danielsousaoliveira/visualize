@@ -27,14 +27,22 @@ struct DockerContainerMonitor: Sendable {
         return inspect(command, ids: Array(ids.prefix(midpoint))) + inspect(command, ids: Array(ids.dropFirst(midpoint)))
     }
 
-    func perform(_ action: String, containerID: String, allowedContainerIDs: Set<String>, overridePath: String?) throws {
+    func perform(_ action: String, containerID: String, allowedContainerIDs: Set<String>, overridePath: String?, expectedContainer: DockerContainer? = nil, dockerOwnership: String? = nil) throws {
         guard ["stop", "restart"].contains(action), containerID.count == 64, containerID.allSatisfy({ $0.isHexDigit }),
               allowedContainerIDs.contains(containerID) else {
             throw NSError(domain: "Container is not in the displayed monitor results", code: 1)
         }
         let command = try DockerCommand.connect(overridePath: overridePath)
-        guard inspect(command, ids: [containerID]).contains(where: { $0.id == containerID }) else {
+        guard let current = inspect(command, ids: [containerID]).first(where: { $0.id == containerID }) else {
             throw NSError(domain: "Container is no longer running with a published TCP port", code: 1)
+        }
+        if let expectedContainer {
+            guard current == expectedContainer else {
+                throw NSError(domain: "Container details changed; review the current monitor entry before acting", code: 1)
+            }
+        }
+        guard action != "restart" || current.isOwned(by: dockerOwnership) else {
+            throw NSError(domain: "Visualize can only restart containers it started", code: 1)
         }
         let result = try run(command, [action, containerID], timeout: 30)
         guard result.status == 0 else { throw NSError(domain: "Docker container action failed", code: 1) }
@@ -44,10 +52,10 @@ struct DockerContainerMonitor: Sendable {
         try CommandOutput.run(command.executable, arguments: ["--host", command.endpoint] + arguments, timeout: timeout)
     }
 
-    static func merge(processes: [ProcessListener], containers: [DockerContainer], projects: [Project], ports: ClosedRange<Int>?) -> [ProcessListener] {
+    static func merge(processes: [ProcessListener], containers: [DockerContainer], projects: [Project], ports: ClosedRange<Int>?, dockerOwnership: String? = nil) -> [ProcessListener] {
         guard let ports else { return [] }
         let local = processes.filter { !isProvider($0) }
-        return (local + containers.flatMap { $0.listeners(projects: projects) }.filter { ports.contains($0.port) })
+        return (local + containers.flatMap { $0.listeners(projects: projects, dockerOwnership: dockerOwnership) }.filter { ports.contains($0.port) })
             .sorted { $0.port == $1.port ? $0.id < $1.id : $0.port < $1.port }
     }
 

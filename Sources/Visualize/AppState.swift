@@ -10,6 +10,7 @@ final class AppState {
     var runningServices: [RunningService] = []
     private(set) var serviceLogs: [String: ServiceLog] = [:]
     private(set) var serviceRuns: [String: ServiceRun] = [:]
+    private var launchedProjects: [UUID: Project] = [:]
     var launchedServices: [UUID: [String: ScanService]] = [:]
     var projectRunResults: [UUID: ScanResult] = [:]
     var projectOperations: [UUID: ProjectOperation] = [:]
@@ -79,6 +80,7 @@ final class AppState {
             let stderr = Pipe()
             let (pid, output) = try LocalProcess.start(recorded, environment: environment, outputDrainerURL: outputDrainerURL, stderr: stderr)
             ownedGroups.insert(pid)
+            launchedProjects[project.id] = project
             launchedServices[project.id, default: [:]][service.id] = service
             actual.pid = pid
             actual.group = OwnedProcessGroup.capture(pid)
@@ -196,6 +198,25 @@ final class AppState {
         return projects.sorted { $0.folderPath.count > $1.folderPath.count }.first {
             path == $0.folderPath || path.hasPrefix($0.folderPath + "/")
         }?.name
+    }
+
+    func ownedAttribution(_ listener: ProcessListener) -> ProcessListener? {
+        guard let identity = listener.identity else { return nil }
+        let owner = PortOwner(port: listener.port, pid: listener.pid, name: listener.name, uid: getuid(),
+                              seconds: identity.seconds, microseconds: identity.microseconds, workingDirectory: listener.workingDirectory)
+        guard let run = ownedRun(for: owner) else { return nil }
+        for captured in launchedProjects.values {
+            let project = projects.first { $0.id == captured.id } ?? captured
+            for service in launchedServices[project.id, default: [:]].values where serviceRuns[runKey(project: project, service: service)] === run {
+                var result = listener
+                result.libraryProjectID = project.id
+                result.projectName = project.lastResult?.project.name ?? project.name
+                result.serviceName = service.name
+                result.startedByVisualize = true
+                return result
+            }
+        }
+        return nil
     }
 
     func owns(_ owner: PortOwner) -> Bool {
@@ -370,7 +391,7 @@ final class AppState {
         self.scanHelper = scanHelper
         self.store = store
         loadLibrary()
-        listenerStore.start(projects: { [weak self] in self?.projects ?? [] }, dockerOverride: { [weak self] in self?.dockerOverridePath })
+        listenerStore.start(dockerOwnership: self.dockerOwnership, projects: { [weak self] in self?.projects ?? [] }, ownedAttribution: { [weak self] in self?.ownedAttribution($0) }, dockerOverride: { [weak self] in self?.dockerOverridePath })
     }
 
     var selectedProject: Project? {
@@ -495,6 +516,7 @@ extension AppState {
         guard selected != .local, dockerState.unavailableReason(compose: selected == .compose) == nil,
               serviceRuns[key]?.active != true, !dockerProjects.contains(project.id),
               parallel || !dockerOperationBusy(project.id) else { return }
+        launchedProjects[project.id] = project
         launchedServices[project.id, default: [:]][service.id] = service
         dockerStarts[project.id, default: 0] += 1
         defer {
@@ -645,6 +667,7 @@ extension AppState {
             let run = serviceRuns[key] ?? ServiceRun(recipe: source.recipe)
             run.docker = DockerRun(command: docker.command, mode: .compose, projectID: project.id, projectSlug: docker.projectSlug, serviceName: name, composeArguments: docker.composeArguments, containerIDs: ids)
             serviceRuns[key] = run
+            launchedProjects[project.id] = project
             launchedServices[project.id, default: [:]][service.id] = service
             markDockerRunning(run, name: service.name)
         }
