@@ -16,6 +16,7 @@ final class AppState {
     var projectRunResults: [UUID: ScanResult] = [:]
     var projectOperations: [UUID: ProjectOperation] = [:]
     var portConflict: PortConflict?
+    var pendingWidgetStop: ProcessListener?
     var portLookupError: String?
     private var resolvingPorts: Set<String> = []
     private var startingServices: Set<String> = []
@@ -784,38 +785,30 @@ extension AppState {
         listener.startedByVisualize && (listener.container != nil || widgetService(listener) != nil)
     }
 
-    func widgetAction(_ listener: ProcessListener, restart: Bool = false) async {
+    func widgetAction(_ listener: ProcessListener, restart: Bool = false, externalStopConfirmed: Bool = false) async {
         guard listenerStore.listeners.contains(where: { $0.id == listener.id }) else { return }
+        if !restart && listener.container == nil && !listener.startedByVisualize && !externalStopConfirmed {
+            pendingWidgetStop = listener
+            return
+        }
+        if pendingWidgetStop?.id == listener.id { pendingWidgetStop = nil }
         if let container = listener.container {
             await listenerStore.perform(restart ? "restart" : "stop", container: container, overridePath: dockerOverridePath)
         } else if let (project, service) = widgetService(listener) {
             if restart { await self.restart(project: project, service: service) }
             else { await stop(project: project, service: service) }
-        } else if !restart && !listener.startedByVisualize {
+        } else if !restart && !listener.startedByVisualize && externalStopConfirmed {
             do { try await Task.detached { try ExternalProcessStop.stop(listener) }.value }
             catch { portLookupError = error.localizedDescription }
         }
     }
 
     func widgetStopManagedAvailable(_ group: ProcessListenerGroup) -> Bool {
-        if let id = group.listeners.first?.libraryProjectID,
-           launchedServices[id, default: [:]].values.contains(where: { service in
-               serviceRuns["\(id.uuidString):\(service.id)"].map { $0.active && $0.docker == nil } == true
-           }) { return true }
         let ids = Set(group.listeners.map(\.id))
         return listenerStore.listeners.contains { ids.contains($0.id) && ($0.container != nil || widgetService($0) != nil) }
     }
 
     func widgetStopManaged(_ group: ProcessListenerGroup) async {
-        if let id = group.listeners.first?.libraryProjectID,
-           let project = projects.first(where: { $0.id == id }) ?? launchedProjects[id] {
-            for service in launchedServices[id, default: [:]].values {
-                let key = runKey(project: project, service: service)
-                if serviceRuns[key]?.active == true, serviceRuns[key]?.docker == nil {
-                    await stop(project: project, service: service)
-                }
-            }
-        }
         var stopped: Set<String> = []
         for listener in group.listeners where listener.container != nil || listener.startedByVisualize {
             let key = listener.container?.id ?? "process:\(listener.pid)"

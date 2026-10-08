@@ -7,7 +7,6 @@ struct MenuBarPopover: View {
     @State private var displayed: [ProcessListenerGroup] = []
     @State private var hovered: String?
     @State private var selected: String?
-    @State private var pendingStop: ProcessListener?
     @State private var busy: Set<String> = []
     @FocusState private var focused: String?
 
@@ -34,7 +33,7 @@ struct MenuBarPopover: View {
                                         Task { await appState.widgetStopManaged(group) }
                                     }
                                     .font(.caption)
-                                    .help("Stop processes started by visualize and this project’s containers")
+                                    .help("Stop managed services shown in this group")
                                 }
                             }
                             ForEach(group.listeners) { listener in
@@ -69,7 +68,7 @@ struct MenuBarPopover: View {
         .onChange(of: appState.listenerStore.listeners.map(\.id)) { update() }
         .onChange(of: appState.listenerStore.lastScan) { update() }
         .onChange(of: hovered) { if hovered == nil { update() } }
-        .onChange(of: pendingStop?.id) { if pendingStop == nil { update() } }
+        .onChange(of: appState.pendingWidgetStop?.id) { if appState.pendingWidgetStop == nil { update() } }
         .onChange(of: focused) { if let focused { selected = focused } }
         .onKeyPress(.upArrow) { move(-1); return .handled }
         .onKeyPress(.downArrow) { move(1); return .handled }
@@ -80,11 +79,11 @@ struct MenuBarPopover: View {
         }
         .onKeyPress(.delete) {
             guard let listener = rows.first(where: { $0.id == selected }) else { return .ignored }
-            pendingStop = listener
+            appState.pendingWidgetStop = listener
             return .handled
         }
-        .confirmationDialog("Stop listening service?", isPresented: Binding(get: { pendingStop != nil }, set: { if !$0 { pendingStop = nil } }), titleVisibility: .visible, presenting: pendingStop) { listener in
-            Button("Stop \(listener.serviceName ?? listener.name)", role: .destructive) { act(listener) }
+        .confirmationDialog("Stop listening service?", isPresented: Binding(get: { appState.pendingWidgetStop != nil }, set: { if !$0 { appState.pendingWidgetStop = nil } }), titleVisibility: .visible, presenting: appState.pendingWidgetStop) { listener in
+            Button("Stop \(listener.serviceName ?? listener.name)", role: .destructive) { act(listener, externalStopConfirmed: true) }
             Button("Cancel", role: .cancel) {}
         } message: { listener in
             Text("Stop the service on port \(listener.port)? The external listening process receives SIGTERM.")
@@ -130,7 +129,7 @@ struct MenuBarPopover: View {
     }
 
     private func update() {
-        if hovered != nil || pendingStop != nil {
+        if hovered != nil || appState.pendingWidgetStop != nil {
             let current = Dictionary(uniqueKeysWithValues: appState.listenerStore.listeners.map { ($0.id, $0) })
             displayed = displayed.map { group in
                 ProcessListenerGroup(id: group.id, name: group.name, listeners: group.listeners.map { current[$0.id] ?? $0 })
@@ -156,14 +155,14 @@ struct MenuBarPopover: View {
     }
 
     private func requestStop(_ listener: ProcessListener) {
-        if listener.container == nil && !listener.startedByVisualize { pendingStop = listener }
+        if listener.container == nil && !listener.startedByVisualize { appState.pendingWidgetStop = listener }
         else { act(listener) }
     }
 
-    private func act(_ listener: ProcessListener, restart: Bool = false) {
+    private func act(_ listener: ProcessListener, restart: Bool = false, externalStopConfirmed: Bool = false) {
         guard busy.insert(listener.id).inserted else { return }
         Task {
-            await appState.widgetAction(listener, restart: restart)
+            await appState.widgetAction(listener, restart: restart, externalStopConfirmed: externalStopConfirmed)
             busy.remove(listener.id)
         }
     }
