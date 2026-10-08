@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ProcessListenersView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
     @State private var pendingStop: DockerContainer?
     @State private var lowerPort = 1024
     @State private var upperPort = 65535
@@ -12,6 +13,8 @@ struct ProcessListenersView: View {
                 Text("Listening ports").font(.title2)
                 Spacer()
                 Text("\(appState.listenerStore.listeners.count) listeners").foregroundStyle(.secondary)
+                Button("Close") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
             }
             HStack {
                 Text("Ports")
