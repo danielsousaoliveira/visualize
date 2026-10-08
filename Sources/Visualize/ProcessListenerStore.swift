@@ -73,7 +73,7 @@ final class ProcessListenerStore {
                                                  ports: lower <= upper ? lower...upper : nil, dockerOwnership: dockerOwnership)
     }
 
-    func perform(_ action: String, container: DockerContainer, overridePath: String?, allowExternalRestart: Bool = false) async {
+    func perform(_ action: String, container: DockerContainer, overridePath: String?) async {
         let allowedIDs = Set(listeners.compactMap { $0.container?.id }).intersection(containers.map(\.id))
         guard allowedIDs.contains(container.id), scannedDockerOverride == overridePath else {
             actionError = "Container is no longer in the displayed monitor results"
@@ -84,7 +84,7 @@ final class ProcessListenerStore {
             actionError = "Container details changed; review the current monitor entry before acting"
             return
         }
-        guard action != "restart" || allowExternalRestart || listeners.contains(where: { $0.container?.id == container.id && $0.startedByVisualize }) else {
+        guard action != "restart" || listeners.contains(where: { $0.container?.id == container.id && $0.startedByVisualize }) else {
             actionError = "Visualize can only restart containers it started"
             return
         }
@@ -94,7 +94,7 @@ final class ProcessListenerStore {
         let ownership = dockerOwnership
         do {
             try await Task.detached(priority: .utility) {
-                try DockerContainerMonitor().perform(action, containerID: container.id, allowedContainerIDs: allowedIDs, overridePath: overridePath, expectedContainer: container, dockerOwnership: ownership, allowExternalRestart: allowExternalRestart)
+                try DockerContainerMonitor().perform(action, containerID: container.id, allowedContainerIDs: allowedIDs, overridePath: overridePath, expectedContainer: container, dockerOwnership: ownership)
             }.value
             if action == "stop" {
                 containers.removeAll { $0.id == container.id }

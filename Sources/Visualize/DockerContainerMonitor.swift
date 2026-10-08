@@ -27,7 +27,7 @@ struct DockerContainerMonitor: Sendable {
         return inspect(command, ids: Array(ids.prefix(midpoint))) + inspect(command, ids: Array(ids.dropFirst(midpoint)))
     }
 
-    func perform(_ action: String, containerID: String, allowedContainerIDs: Set<String>, overridePath: String?, expectedContainer: DockerContainer? = nil, dockerOwnership: String? = nil, allowExternalRestart: Bool = false) throws {
+    func perform(_ action: String, containerID: String, allowedContainerIDs: Set<String>, overridePath: String?, expectedContainer: DockerContainer? = nil, dockerOwnership: String? = nil) throws {
         guard ["stop", "restart"].contains(action), containerID.count == 64, containerID.allSatisfy({ $0.isHexDigit }),
               allowedContainerIDs.contains(containerID) else {
             throw NSError(domain: "Container is not in the displayed monitor results", code: 1)
@@ -41,7 +41,7 @@ struct DockerContainerMonitor: Sendable {
                 throw NSError(domain: "Container details changed; review the current monitor entry before acting", code: 1)
             }
         }
-        guard action != "restart" || allowExternalRestart || current.isOwned(by: dockerOwnership) else {
+        guard action != "restart" || current.isOwned(by: dockerOwnership) else {
             throw NSError(domain: "Visualize can only restart containers it started", code: 1)
         }
         let result = try run(command, [action, containerID], timeout: 30)

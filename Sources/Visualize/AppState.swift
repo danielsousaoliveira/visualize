@@ -760,13 +760,13 @@ extension AppState {
     }
 
     func widgetRestartAvailable(_ listener: ProcessListener) -> Bool {
-        listener.container != nil || widgetService(listener) != nil
+        listener.startedByVisualize && (listener.container != nil || widgetService(listener) != nil)
     }
 
     func widgetAction(_ listener: ProcessListener, restart: Bool = false) async {
         guard listenerStore.listeners.contains(where: { $0.id == listener.id }) else { return }
         if let container = listener.container {
-            await listenerStore.perform(restart ? "restart" : "stop", container: container, overridePath: dockerOverridePath, allowExternalRestart: true)
+            await listenerStore.perform(restart ? "restart" : "stop", container: container, overridePath: dockerOverridePath)
         } else if let (project, service) = widgetService(listener) {
             if restart { await self.restart(project: project, service: service) }
             else { await stop(project: project, service: service) }
