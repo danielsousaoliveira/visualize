@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ProjectDetailView: View {
     @Environment(AppState.self) private var appState
+    @State private var showRelease = false
     @State private var graphSelected = false
     @State private var logServiceID: String?
     @State private var pendingStartMode: ProjectStartMode?
@@ -33,6 +34,20 @@ struct ProjectDetailView: View {
                     Button("Locate…", action: onLocate)
                     Button("Remove", role: .destructive, action: onRemove)
                 }
+            }
+        }
+        .toolbar {
+            Button("Push to production", systemImage: "arrow.up.circle") { showRelease = true }
+                .disabled(!project.folderExists)
+        }
+        .sheet(isPresented: $showRelease) {
+            VStack(alignment: .trailing) {
+                ScrollView {
+                    ReleasePanel(project: project, operation: appState.releaseOperation(project: project))
+                }.frame(maxHeight: 640)
+                Button("Close") { showRelease = false }
+                    .keyboardShortcut(.cancelAction)
+                    .padding([.trailing, .bottom], 24)
             }
         }
         .sheet(isPresented: $showStartConfirmation) {
