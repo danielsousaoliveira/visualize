@@ -48,6 +48,52 @@ struct PortAttributionTests {
         #expect(spoofed.listeners(projects: [project], dockerOwnership: "installation").first?.startedByVisualize == false)
     }
 
+    @Test func composeServiceLabelsSurviveMissingScans() throws {
+        let project = Project(folder: URL(filePath: "/tmp/shop"))
+        let container = DockerContainer(id: String(repeating: "a", count: 64), name: "db-1", image: "postgres", status: "running", ports: [5432],
+            labels: ["com.docker.compose.project.working_dir": "/tmp/shop", "com.docker.compose.service": "db"])
+        #expect(container.listeners(projects: [project]).first?.serviceName == "db")
+        #expect(container.listeners(projects: []).first?.serviceName == "db")
+        var labels = container.labels
+        labels["visualize.project"] = "shop"
+        labels["visualize.service"] = "database"
+        labels["visualize.owner"] = "installation"
+        let owned = DockerContainer(id: container.id, name: container.name, image: container.image, status: container.status, ports: container.ports, labels: labels)
+        #expect(owned.listeners(projects: [], dockerOwnership: "installation").first?.serviceName == "database")
+        #expect(owned.listeners(projects: [], dockerOwnership: "foreign").first?.serviceName == "db")
+    }
+
+    @Test func groupsProjectsByIdentityRatherThanName() throws {
+        var first = listener("/tmp/first")
+        first.libraryProjectID = UUID()
+        first.projectName = "Other"
+        var second = listener("/tmp/second")
+        second.libraryProjectID = UUID()
+        second.projectName = "Other"
+        var anotherPort = first
+        anotherPort.serviceName = "web"
+        let external = listener("/tmp/external")
+        let groups = ProcessListenerGroup.groups([first, second, anotherPort, external])
+        #expect(groups.count == 3)
+        #expect(groups.allSatisfy { $0.name == "Other" })
+        let firstID = try #require(first.libraryProjectID)
+        let secondID = try #require(second.libraryProjectID)
+        #expect(groups.first { $0.id == "library:\(firstID.uuidString)" }?.listeners.count == 2)
+        #expect(groups.first { $0.id == "library:\(secondID.uuidString)" }?.listeners.count == 1)
+        #expect(groups.first { $0.id == "other" }?.listeners.count == 1)
+    }
+
+    @Test @MainActor func monitorReceivesStoredOwnershipTokenByDefault() {
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let state = AppState(store: ProjectLibraryStore(directory: root))
+        defer {
+            state.listenerStore.stop()
+            try? FileManager.default.removeItem(at: root)
+        }
+        #expect(!state.dockerOwnership.isEmpty)
+        #expect(state.listenerStore.dockerOwnership == state.dockerOwnership)
+    }
+
     @Test func externalManifestNameAndFolderFallback() throws {
         let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: root.appending(path: "src"), withIntermediateDirectories: true)

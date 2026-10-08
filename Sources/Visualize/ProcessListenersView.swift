@@ -32,9 +32,9 @@ struct ProcessListenersView: View {
                 ContentUnavailableView("No matching listeners", systemImage: "dot.radiowaves.left.and.right", description: Text("User-owned TCP listeners appear here."))
             } else {
                 ScrollView {
-                    ForEach(Array(Set(appState.listenerStore.listeners.map(\.attributionGroup))).sorted(), id: \.self) { group in
-                        Text(group).font(.headline).frame(maxWidth: .infinity, alignment: .leading)
-                        Table(appState.listenerStore.listeners.filter { $0.attributionGroup == group }) {
+                    ForEach(ProcessListenerGroup.groups(appState.listenerStore.listeners)) { group in
+                        Text(group.name).font(.headline).frame(maxWidth: .infinity, alignment: .leading)
+                        Table(group.listeners) {
                             TableColumn("Port") { Text(String($0.port)).monospacedDigit() }.width(min: 55, ideal: 65)
                             TableColumn("Listener") { listener in
                                 VStack(alignment: .leading) {
@@ -61,7 +61,7 @@ struct ProcessListenersView: View {
                                 }
                             }.width(min: 140, ideal: 150)
                             TableColumn("Memory") { Text(memory($0.memoryBytes)).monospacedDigit() }.width(min: 70, ideal: 85)
-                        }.frame(height: CGFloat(appState.listenerStore.listeners.filter { $0.attributionGroup == group }.count * 48 + 32))
+                        }.frame(height: CGFloat(group.listeners.count * 48 + 32))
                     }
                 }
             }

@@ -9,7 +9,7 @@ final class ProcessListenerStore {
     var upperPort = 65535
     private(set) var actionError: String?
     private(set) var busyContainers: Set<String> = []
-    private var dockerOwnership: String?
+    private(set) var dockerOwnership: String?
     private var processes: [ProcessListener] = []
     private var scannedDockerOverride: String?
     private var containers: [DockerContainer] = []

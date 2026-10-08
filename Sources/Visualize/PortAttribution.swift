@@ -20,7 +20,7 @@ struct PortAttribution {
         if let container {
             let key = owned ? container.visualizeService : container.composeService
             result.serviceName = services.first { $0.id == key || $0.runModes.compose.serviceName == key }?.name
-                ?? (owned ? key : nil)
+                ?? key
         } else if let project, let directory {
             result.serviceName = services.filter { service in
                 let root = serviceRoot(service, project: project)
