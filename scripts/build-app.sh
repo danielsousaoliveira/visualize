@@ -34,7 +34,8 @@ build_helper() {
 }
 
 cd "$repo_root"
-swift build -c release --product "$app_name"
+source "$repo_root/scripts/postgres-build-flags.sh"
+swift build -c release --product "$app_name" "${postgres_flags[@]}"
 binary_path="$(swift build -c release --show-bin-path)/$app_name"
 build_helper
 
@@ -43,6 +44,7 @@ mkdir -p "$app_path/Contents/MacOS" "$app_path/Contents/Helpers" "$app_path/Cont
 cp "$binary_path" "$app_path/Contents/MacOS/$app_name"
 cp "$helper_build/$helper_name" "$app_path/Contents/Helpers/$helper_name"
 cp "$repo_root/Resources/Info.plist" "$app_path/Contents/Info.plist"
+cp "$postgres_root/COPYRIGHT" "$app_path/Contents/Resources/PostgreSQL-LICENSE.txt"
 printf 'APPL????' > "$app_path/Contents/PkgInfo"
 
 identity="${VISUALIZE_SIGNING_IDENTITY:-$(find_developer_id)}"

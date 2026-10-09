@@ -6,6 +6,8 @@ import Observation
 @Observable
 final class AppState {
     private(set) var projects: [Project] = []
+    private(set) var databaseSessions: [UUID: DatabaseConnection] = [:]
+    private var databaseSessionProjects: [UUID: UUID] = [:]
     private var releaseOperations: [UUID: ReleaseOperation] = [:]
     private var graphModels: [UUID: ServiceGraphModel] = [:]
     let listenerStore = ProcessListenerStore()
@@ -476,13 +478,28 @@ final class AppState {
     }
 
     func remove(_ id: Project.ID) {
+        guard let removedProject = project(id) else { return }
+        let previousProjects = projects
         projects.removeAll { $0.id == id }
+        guard persist() else {
+            projects = previousProjects
+            return
+        }
+        var cleanupErrors: [String] = []
+        for connection in removedProject.databaseConnections ?? [] {
+            do { try DatabasePasswordStore.delete(projectID: id, connectionID: connection.id) }
+            catch { cleanupErrors.append(error.localizedDescription) }
+            disconnectDatabase(connection.id)
+        }
+        for connectionID in databaseSessionProjects.filter({ $0.value == id }).keys { disconnectDatabase(connectionID) }
         graphModels[id] = nil
         scanErrors[id] = nil
         if selection == id {
             selection = nil
         }
-        persist()
+        if !cleanupErrors.isEmpty {
+            libraryError = "The project was removed, but some database passwords could not be deleted: \(cleanupErrors.joined(separator: "; "))"
+        }
     }
 
     private func loadLibrary() {
@@ -533,18 +550,77 @@ final class AppState {
         return operation
     }
 
+    func saveDatabaseConnection(_ settings: DatabaseConnectionSettings, password: String, projectID: UUID) throws {
+        try settings.validate()
+        guard canSave, let index = projects.firstIndex(where: { $0.id == projectID }) else {
+            throw DatabaseError("Project library is unavailable")
+        }
+        let previous = projects[index].databaseConnections
+        let oldPassword = try DatabasePasswordStore.read(projectID: projectID, connectionID: settings.id)
+        if settings.engine == .postgres {
+            try DatabasePasswordStore.save(password, projectID: projectID, connectionID: settings.id)
+        } else { try DatabasePasswordStore.delete(projectID: projectID, connectionID: settings.id) }
+        var connections = previous ?? []
+        connections.removeAll { $0.id == settings.id }
+        connections.append(settings)
+        projects[index].databaseConnections = connections
+        do { try store.save(projects) }
+        catch {
+            projects[index].databaseConnections = previous
+            if previous?.contains(where: { $0.id == settings.id && $0.engine == .postgres }) == true {
+                try? DatabasePasswordStore.save(oldPassword, projectID: projectID, connectionID: settings.id)
+            } else { try? DatabasePasswordStore.delete(projectID: projectID, connectionID: settings.id) }
+            throw error
+        }
+        disconnectDatabase(settings.id)
+    }
+
+    func deleteDatabaseConnection(_ settings: DatabaseConnectionSettings, projectID: UUID) throws {
+        guard canSave, let index = projects.firstIndex(where: { $0.id == projectID }) else {
+            throw DatabaseError("Project library is unavailable")
+        }
+        let previous = projects[index].databaseConnections
+        let password = try DatabasePasswordStore.read(projectID: projectID, connectionID: settings.id)
+        try DatabasePasswordStore.delete(projectID: projectID, connectionID: settings.id)
+        projects[index].databaseConnections?.removeAll { $0.id == settings.id }
+        do { try store.save(projects) }
+        catch {
+            projects[index].databaseConnections = previous
+            if settings.engine == .postgres {
+                try? DatabasePasswordStore.save(password, projectID: projectID, connectionID: settings.id)
+            }
+            throw error
+        }
+        disconnectDatabase(settings.id)
+    }
+
+    func retainDatabase(_ connection: DatabaseConnection, id: UUID, projectID: UUID) throws {
+        guard project(projectID) != nil else { throw DatabaseError("Project was removed") }
+        disconnectDatabase(id)
+        databaseSessions[id] = connection
+        databaseSessionProjects[id] = projectID
+    }
+
+    func disconnectDatabase(_ id: UUID) {
+        databaseSessionProjects[id] = nil
+        if let session = databaseSessions.removeValue(forKey: id) { Task { await session.close() } }
+    }
+
     func saveReleaseSettings(_ settings: ReleaseSettings, projectID: UUID) {
         guard let index = projects.firstIndex(where: { $0.id == projectID }) else { return }
         projects[index].releaseSettings = settings
         persist()
     }
 
-    private func persist() {
-        guard canSave else { return }
+    @discardableResult
+    private func persist() -> Bool {
+        guard canSave else { return false }
         do {
             try store.save(projects)
+            return true
         } catch {
             libraryError = "The project library could not be saved: \(error.localizedDescription)"
+            return false
         }
     }
 }

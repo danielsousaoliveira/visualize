@@ -7,6 +7,7 @@ struct Project: Identifiable, Hashable, Codable {
     var lastResult: ScanResult?
     var releaseSettings: ReleaseSettings?
     var savedGraphPositions: [String: GraphPosition]?
+    var databaseConnections: [DatabaseConnectionSettings]?
 
     var serviceGraph: ServiceGraph? {
         lastResult.map { ServiceGraph(scan: $0, savedPositions: savedGraphPositions ?? [:]) }
