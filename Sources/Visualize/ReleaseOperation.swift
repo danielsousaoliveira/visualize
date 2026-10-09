@@ -9,7 +9,7 @@ final class ReleaseOperation {
     var preflight: ReleasePreflight?
     var busy = false
     let folder: URL
-    private let logURL: URL
+    let logURL: URL
     @ObservationIgnored private lazy var git = GitRelease(folder: folder, logURL: logURL) { [weak self] text in
         await self?.append(text)
     }

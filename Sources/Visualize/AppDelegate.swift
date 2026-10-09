@@ -1,8 +1,21 @@
 import AppKit
+import SwiftUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     static weak var appState: AppState?
+    static var openWindow: OpenWindowAction?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { Self.openWindow?(id: MainWindow.id) }
+        sender.activate(ignoringOtherApps: true)
+        return true
+    }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let state = Self.appState, state.hasOwnedProcesses else { return .terminateNow }

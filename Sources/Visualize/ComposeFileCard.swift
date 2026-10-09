@@ -8,7 +8,10 @@ struct ComposeFileCard: View {
         let names = Set(result.services.compactMap { service in
             service.runModes.compose.composeFile == file ? service.runModes.compose.serviceName : nil
         })
-        return result.composeServices.filter { names.contains($0.name) || (result.composeFiles.count == 1 && names.isEmpty) }
+        return result.composeServices.filter {
+            if let composeFile = $0.composeFile { return composeFile == file }
+            return names.contains($0.name) || (result.composeFiles.count == 1 && names.isEmpty)
+        }
     }
 
     var body: some View {

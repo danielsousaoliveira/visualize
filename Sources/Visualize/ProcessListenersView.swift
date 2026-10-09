@@ -11,7 +11,7 @@ struct ProcessListenersView: View {
                 Text("Listening ports").font(.title2)
                 Spacer()
                 Text("\(appState.listenerStore.listeners.count) listeners").foregroundStyle(.secondary)
-                Button("Close") { dismiss() }
+                Button("Close") { dismiss() }.help("Close")
                     .keyboardShortcut(.cancelAction)
             }
             HStack {
@@ -48,8 +48,8 @@ struct ProcessListenersView: View {
                             TableColumn("Actions") { listener in
                                 if let container = listener.container {
                                     HStack {
-                                        Button("Stop") { pendingStop = container }
-                                        Button("Restart") { Task { await appState.listenerStore.perform("restart", container: container, overridePath: appState.dockerOverridePath) } }.disabled(!listener.startedByVisualize)
+                                        Button("Stop") { pendingStop = container }.help("Stop")
+                                        Button("Restart") { Task { await appState.listenerStore.perform("restart", container: container, overridePath: appState.dockerOverridePath) } }.help("Restart").disabled(!listener.startedByVisualize)
                                     }.disabled(appState.listenerStore.busyContainers.contains(container.id))
                                 }
                             }.width(min: 140, ideal: 150)
@@ -64,8 +64,8 @@ struct ProcessListenersView: View {
         .confirmationDialog("Stop container?", isPresented: Binding(get: { pendingStop != nil }, set: { if !$0 { pendingStop = nil } }), presenting: pendingStop) { container in
             Button("Stop \(container.name)", role: .destructive) {
                 Task { await appState.listenerStore.perform("stop", container: container, overridePath: appState.dockerOverridePath) }
-            }
-            Button("Cancel", role: .cancel) {}
+            }.help("Stop this container")
+            Button("Cancel", role: .cancel) {}.help("Cancel")
         } message: { container in
             Text("Stop \(container.name) (\(container.image), ID \(container.id.prefix(12))) on ports \(container.ports.map(String.init).joined(separator: ", "))?")
         }

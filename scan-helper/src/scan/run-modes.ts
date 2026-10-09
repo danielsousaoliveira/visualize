@@ -43,6 +43,10 @@ export async function detectRunModes(
     posix.normalize(posix.join(composeDirectory, context)) === service.rootDirectory;
   const canReadDockerfile = service.kind !== "compose" || localContext;
   const content = canReadDockerfile ? await reader.readText(dockerfilePath) : undefined;
+  const buildIssue = info.unsupportedCompose?.find((issue) =>
+    issue.service === compose?.name && issue.blocking && issue.field.startsWith("build."),
+  );
+  const standaloneDockerfile = content !== undefined && buildIssue === undefined;
   return {
     local: {
       available: service.devCommand !== null,
@@ -55,8 +59,8 @@ export async function detectRunModes(
       serviceName: compose ? compose.name : null,
     },
     dockerfile: {
-      available: content !== undefined,
-      reason: content !== undefined ? null : "no Dockerfile in service root",
+      available: standaloneDockerfile,
+      reason: buildIssue ? "Use Compose to preserve the declared build options" : content !== undefined ? null : "no Dockerfile in service root",
       dockerfilePath: content !== undefined ? dockerfilePath : null,
       containerPort: content !== undefined ? exposedPort(content) ?? service.port : null,
     },

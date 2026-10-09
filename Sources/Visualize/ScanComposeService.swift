@@ -7,4 +7,5 @@ struct ScanComposeService: Codable, Hashable {
     var ports: [ScanPortMapping]
     var dependsOn: [String]
     var environment: [String]
+    var composeFile: String? = nil
 }

@@ -3,8 +3,6 @@ import { basename } from "node:path";
 import { readGitBranch } from "./git-branch";
 import { MANIFEST_FILES, type RepoFile, type StackResult } from "../engine/stack-detector";
 import {
-  blockingComposeFields,
-  describeBlockingComposeFields,
   parseComposeEnvFile,
   parseComposeFile,
   type ComposeMissingVariable,
@@ -82,8 +80,6 @@ export interface ProjectInfo {
   /** Compose variables the file marks mandatory that no `.env` value
    *  satisfied. Absent when there are none. */
   missingRequiredEnv?: ComposeMissingVariable[];
-  /** Compose keys the file declares that the parser doesn't model. Blocking ones
-   *  never reach here: they refuse the scan instead. Absent when there are none. */
   unsupportedCompose?: ComposeUnsupportedField[];
   monorepoApps?: MonorepoApp[];
   monorepoWorkspace?: MonorepoWorkspace;
@@ -375,17 +371,6 @@ function toProjectInfo(
       throw new ComposeConfigurationError(`Could not parse the Docker Compose file: ${detail}`, {
         cause: err,
       });
-    }
-
-    // A BLOCKING key refuses the scan, outside the parse try/catch so it never
-    // reads as "could not parse" — the file is valid, it just asks for something
-    // that cannot be run faithfully.
-    const blocking = blockingComposeFields(unsupportedCompose ?? []);
-    if (blocking.length > 0) {
-      throw new ComposeConfigurationError(
-        `The Docker Compose file declares options that can't be run faithfully:\n` +
-          describeBlockingComposeFields(blocking),
-      );
     }
   }
 

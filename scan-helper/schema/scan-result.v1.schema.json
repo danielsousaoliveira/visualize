@@ -394,6 +394,7 @@
       "additionalProperties": false,
       "required": ["name", "image", "buildContext", "ports", "dependsOn", "environment"],
       "properties": {
+        "composeFile": { "$ref": "#/$defs/relativePath" },
         "name": { "type": "string", "minLength": 1 },
         "image": { "type": ["string", "null"], "minLength": 1 },
         "buildContext": { "type": ["string", "null"], "minLength": 1 },

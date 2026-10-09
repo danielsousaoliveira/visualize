@@ -46,7 +46,7 @@ struct ProjectRunnerTests {
         await state.startAll(project: project, mode: .configured)
         #expect(state.serviceRuns[state.runKey(project: project, service: db)]?.pid == pid)
         #expect(state.projectOperations[project.id]?.order == ["db", "api", "web"])
-        #expect(state.projectOperations[project.id]?.statuses["db"] == "skipped — already running")
+        #expect(state.projectOperations[project.id]?.statuses["db"] == "already running")
         var rescanned = project
         rescanned.lastResult?.services = []
         await state.stopAll(project: rescanned)
@@ -147,7 +147,7 @@ struct ProjectRunnerTests {
         #expect(!state.hasOwnedProcesses)
     }
 
-    @Test @MainActor func batchesComposeAndFallsBackToLocal() async throws {
+    @Test @MainActor func batchesComposeWithoutFallingBackToLocal() async throws {
         let (state, original, folder) = try fixture()
         defer { try? FileManager.default.removeItem(at: folder) }
         var project = original
@@ -185,14 +185,14 @@ struct ProjectRunnerTests {
         defer { state.dockerOverridePath = previous }
         await state.checkDocker()
         await state.startAll(project: project, mode: .docker)
-        #expect(state.projectOperations[project.id]?.statuses.values.allSatisfy { $0 == "running" } == true)
+        #expect(state.projectOperations[project.id]?.statuses["db"] == "running")
+        #expect(state.projectOperations[project.id]?.statuses["api"] == "running")
+        #expect(state.projectOperations[project.id]?.statuses["web"] == "unavailable — no matching run mode")
         let calls = try String(contentsOf: stub.file("calls"), encoding: .utf8).split(separator: "\n").map(String.init)
         let ups = calls.filter { $0.contains(" up ") }
         #expect(ups.count == 1)
         #expect(ups.first?.contains("--no-deps --no-recreate db api") == true)
-        let web = try #require(state.serviceRuns["\(project.id.uuidString):web"])
-        #expect(web.pid != nil)
-        #expect(web.docker == nil)
+        #expect(state.serviceRuns["\(project.id.uuidString):web"] == nil)
         await state.stopAll(project: project)
         #expect(!state.hasOwnedProcesses)
         let stopped = try String(contentsOf: stub.file("calls"), encoding: .utf8)
@@ -200,16 +200,16 @@ struct ProjectRunnerTests {
         #expect(stopped.contains(" rm db-id"))
     }
 
-    @Test @MainActor func fallsBackWithoutChangingRememberedModes() throws {
+    @Test @MainActor func resolvesOnlySupportedRequestedModes() throws {
         let (_, project, folder) = try fixture()
         defer { try? FileManager.default.removeItem(at: folder) }
         var service = try #require(project.lastResult?.services.first)
-        #expect(ProjectStartMode.docker.resolve(service, remembered: .local) == .local)
+        #expect(ProjectStartMode.docker.resolve(service, remembered: .local) == nil)
         service.runModes.compose = ScanComposeRunMode(available: true, reason: nil, composeFile: "compose.yaml", serviceName: "db")
         #expect(ProjectStartMode.docker.resolve(service, remembered: .local) == .compose)
         #expect(ProjectStartMode.configured.resolve(service, remembered: .local) == .local)
         service.runModes.local.available = false
-        #expect(ProjectStartMode.local.resolve(service, remembered: .compose) == .compose)
+        #expect(ProjectStartMode.local.resolve(service, remembered: .compose) == nil)
     }
     @Test @MainActor func widgetBulkStopLeavesUndisplayedServicesRunning() async throws {
         let (state, original, folder) = try fixture()

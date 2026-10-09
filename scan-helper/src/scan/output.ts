@@ -356,7 +356,7 @@ function collectWarnings(info: ProjectInfo, composeDirectory: string): string[] 
       ),
     ),
     ...(info.unsupportedCompose ?? []).map(
-      ({ service, reason }) => `Service "${service}": ${reason}`,
+      ({ service, field }) => `Service "${service}": ${field} is not shown in the scan. Docker Compose uses the original file and preserves this option.`,
     ),
   ];
 }

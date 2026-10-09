@@ -185,3 +185,44 @@ describe("tree walk", () => {
     expect(paths).toEqual(["README.md", "linked"]);
   });
 });
+
+
+describe("folder discovery", () => {
+  it("finds independent nested apps without a workspace and keeps their command paths", async () => {
+    const root = folder("independent-apps", {
+      "teams/backend/api/package.json": JSON.stringify({ name: "api", scripts: { dev: "node server.js" }, dependencies: { express: "^4" } }),
+      "teams/frontend/web/package.json": JSON.stringify({ name: "web", scripts: { dev: "vite" }, devDependencies: { vite: "^6" } }),
+      "node_modules/hidden/package.json": JSON.stringify({ scripts: { dev: "node hidden.js" } }),
+    });
+    const result = await scanFolder(root);
+    const runnable = result.services.filter((service) => service.devCommand !== null);
+    expect(runnable.map((service) => service.rootDirectory).sort()).toEqual(["teams/backend/api", "teams/frontend/web"]);
+    expect(runnable.every((service) => service.devCommand?.workingDirectory === service.rootDirectory)).toBe(true);
+    expect(result.services.some((service) => service.rootDirectory.includes("node_modules"))).toBe(false);
+  });
+
+  it("keeps repeated Compose names in separate subfolders distinct", async () => {
+    const compose = "services:\n  db:\n    image: postgres:16\n    ports: ['5432:5432']\n";
+    const result = await scanFolder(folder("separate-compose", {
+      "one/compose.yaml": compose,
+      "two/compose.yaml": compose,
+    }));
+    expect(result.composeFiles.sort()).toEqual(["one/compose.yaml", "two/compose.yaml"]);
+    expect(new Set(result.services.map((service) => service.id)).size).toBe(result.services.length);
+    expect(result.services.filter((service) => service.runModes.compose.available).map((service) => service.runModes.compose.composeFile).sort()).toEqual(["one/compose.yaml", "two/compose.yaml"]);
+    expect(result.infra.filter((infra) => infra.providedBy !== null)).toHaveLength(2);
+    expect(result.infra.every((infra) => infra.id.startsWith("infra:"))).toBe(true);
+  });
+
+  it("allows build.platforms through Compose while disabling a lossy Dockerfile run", async () => {
+    const result = await scanFolder(folder("compose-platforms", {
+      "compose.yaml": "services:\n  api:\n    build:\n      context: ./api\n      platforms: [linux/amd64, linux/arm64]\n",
+      "api/Dockerfile": "FROM node:22\n",
+      "api/package.json": JSON.stringify({ scripts: { dev: "node server.js" }, dependencies: { express: "^4" } }),
+    }));
+    const service = result.services.find((service) => service.name === "api")!;
+    expect(service.runModes.compose.available).toBe(true);
+    expect(service.runModes.dockerfile.available).toBe(false);
+    expect(result.warnings.some((warning) => warning.includes("build.platforms"))).toBe(true);
+  });
+});
