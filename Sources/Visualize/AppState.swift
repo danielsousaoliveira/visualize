@@ -478,19 +478,28 @@ final class AppState {
     }
 
     func remove(_ id: Project.ID) {
-        for connection in project(id)?.databaseConnections ?? [] {
+        guard let removedProject = project(id) else { return }
+        let previousProjects = projects
+        projects.removeAll { $0.id == id }
+        guard persist() else {
+            projects = previousProjects
+            return
+        }
+        var cleanupErrors: [String] = []
+        for connection in removedProject.databaseConnections ?? [] {
             do { try DatabasePasswordStore.delete(projectID: id, connectionID: connection.id) }
-            catch { libraryError = error.localizedDescription; return }
+            catch { cleanupErrors.append(error.localizedDescription) }
             disconnectDatabase(connection.id)
         }
         for connectionID in databaseSessionProjects.filter({ $0.value == id }).keys { disconnectDatabase(connectionID) }
-        projects.removeAll { $0.id == id }
         graphModels[id] = nil
         scanErrors[id] = nil
         if selection == id {
             selection = nil
         }
-        persist()
+        if !cleanupErrors.isEmpty {
+            libraryError = "The project was removed, but some database passwords could not be deleted: \(cleanupErrors.joined(separator: "; "))"
+        }
     }
 
     private func loadLibrary() {
@@ -603,12 +612,15 @@ final class AppState {
         persist()
     }
 
-    private func persist() {
-        guard canSave else { return }
+    @discardableResult
+    private func persist() -> Bool {
+        guard canSave else { return false }
         do {
             try store.save(projects)
+            return true
         } catch {
             libraryError = "The project library could not be saved: \(error.localizedDescription)"
+            return false
         }
     }
 }
