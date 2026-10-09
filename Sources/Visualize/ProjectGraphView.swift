@@ -48,7 +48,7 @@ struct ProjectGraphView: View {
                                 if panOrigin == nil { panOrigin = offset }
                                 offset = CGSize(width: panOrigin!.width + value.translation.width, height: panOrigin!.height + value.translation.height)
                             }.onEnded { _ in panOrigin = nil })
-                            Canvas { context, _ in drawEdges(&context) }.allowsHitTesting(false)
+                            Canvas { context, size in drawEdges(&context, size: size) }.allowsHitTesting(false)
                             ForEach(graph.nodes) { node in
                                 if let position = position(node.id) {
                                     GraphNodeCard(project: project, node: node, selected: selected == node.id)
@@ -113,16 +113,34 @@ struct ProjectGraphView: View {
                         height: canvasHeight / 2 - (top + bottom) / 2 * zoom)
     }
 
-    private func drawEdges(_ context: inout GraphicsContext) {
-        for edge in graph.edges {
+    private func drawEdges(_ context: inout GraphicsContext, size: CGSize) {
+        let groups = Dictionary(grouping: graph.edges) { [$0.from, $0.to].sorted().joined(separator: "\u{0}") }
+        var occupied = graph.nodes.compactMap { node -> CGRect? in
+            guard let position = position(node.id) else { return nil }
+            let centre = screen(position)
+            return CGRect(x: centre.x - GraphNodeCard.size.width * zoom / 2,
+                          y: centre.y - GraphNodeCard.size.height * zoom / 2,
+                          width: GraphNodeCard.size.width * zoom,
+                          height: GraphNodeCard.size.height * zoom).insetBy(dx: -6, dy: -6)
+        }
+        var labels: [(CGRect, GraphicsContext.ResolvedText)] = []
+        let edges = graph.edges.sorted {
+            let firstSelected = $0.from == selected || $0.to == selected
+            let secondSelected = $1.from == selected || $1.to == selected
+            return firstSelected == secondSelected ? $0.id < $1.id : firstSelected
+        }
+        for edge in edges {
             guard let from = position(edge.from), let to = position(edge.to) else { continue }
             let direction: CGFloat = from.x <= to.x ? 1 : -1
             let start = screen(GraphPosition(x: from.x + direction * GraphNodeCard.size.width / 2, y: from.y))
             let end = screen(GraphPosition(x: to.x - direction * GraphNodeCard.size.width / 2, y: to.y))
             let bend = max(60 * zoom, abs(end.x - start.x) / 2)
             let selfEdge = edge.from == edge.to
-            let c1 = CGPoint(x: start.x + direction * bend, y: selfEdge ? start.y - 140 * zoom : start.y)
-            let c2 = CGPoint(x: end.x - direction * bend, y: selfEdge ? end.y - 140 * zoom : end.y)
+            let peers = groups[[edge.from, edge.to].sorted().joined(separator: "\u{0}")] ?? [edge]
+            let lane = CGFloat(peers.firstIndex { $0.id == edge.id } ?? 0) - CGFloat(peers.count - 1) / 2
+            let laneOffset = lane * 32 * zoom
+            let c1 = CGPoint(x: start.x + direction * bend, y: (selfEdge ? start.y - 140 * zoom : start.y) + laneOffset)
+            let c2 = CGPoint(x: end.x - direction * bend, y: (selfEdge ? end.y - 140 * zoom : end.y) + laneOffset)
             var path = Path()
             path.move(to: start)
             path.addCurve(to: end, control1: c1, control2: c2)
@@ -136,11 +154,26 @@ struct ProjectGraphView: View {
             arrow.addLine(to: CGPoint(x: end.x - cos(angle + 0.45) * 10 * zoom, y: end.y - sin(angle + 0.45) * 10 * zoom))
             arrow.closeSubpath()
             context.fill(arrow, with: .color(color))
-            if !edge.label.isEmpty && (graph.nodes.count <= 40 || zoom >= 1) {
+            if !edge.label.isEmpty && zoom >= 0.75 && (graph.nodes.count <= 40 || edge.from == selected || edge.to == selected) {
                 let middle = CGPoint(x: (start.x + 3 * c1.x + 3 * c2.x + end.x) / 8,
                                      y: (start.y + 3 * c1.y + 3 * c2.y + end.y) / 8 - 10 * zoom)
-                context.draw(Text(edge.label).font(.system(size: 11 * zoom)).foregroundColor(color), at: middle)
+                let text = context.resolve(Text(edge.label).font(.system(size: 11 * zoom)).foregroundColor(color))
+                let measured = text.measure(in: CGSize(width: 10_000, height: 100))
+                for shift in [CGFloat(0), -22 * zoom, 22 * zoom, -44 * zoom, 44 * zoom] {
+                    let rect = CGRect(x: middle.x - measured.width / 2 - 6,
+                                      y: middle.y + shift - measured.height / 2 - 3,
+                                      width: measured.width + 12, height: measured.height + 6)
+                    guard CGRect(origin: .zero, size: size).contains(rect),
+                          !occupied.contains(where: { $0.intersects(rect) }) else { continue }
+                    occupied.append(rect.insetBy(dx: -3, dy: -3))
+                    labels.append((rect, text))
+                    break
+                }
             }
+        }
+        for (rect, text) in labels {
+            context.fill(Path(roundedRect: rect, cornerRadius: 4), with: .color(Color(nsColor: .windowBackgroundColor).opacity(0.95)))
+            context.draw(text, at: CGPoint(x: rect.midX, y: rect.midY))
         }
     }
 

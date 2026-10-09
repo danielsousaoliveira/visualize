@@ -4,6 +4,7 @@ struct ReleasePanel: View {
     @Environment(AppState.self) private var appState
     @State private var settings: ReleaseSettings
     @State private var confirmation = ""
+    @State private var pendingPush: ReleasePreflight?
     let project: Project
     let operation: ReleaseOperation
 
@@ -57,7 +58,7 @@ struct ReleasePanel: View {
                 HStack {
                     Button("Cancel review") { operation.preflight = nil; confirmation = "" }.help("Cancel review")
                     Button(reviewed.productionSHA == nil ? "Create production branch" : "Push to production") {
-                        Task { await operation.push(confirmation: confirmation) }
+                        pendingPush = reviewed
                     }.help("Push the reviewed commit to the production branch").disabled(operation.busy || reviewed.unchanged || (reviewed.requiresConfirmation && confirmation != reviewed.settings.production))
                 }
             }
@@ -69,6 +70,21 @@ struct ReleasePanel: View {
                 }.frame(height: 220)
             }
         }.padding(24).frame(width: 760)
+        .alert("Confirm production push", isPresented: Binding(
+            get: { pendingPush != nil },
+            set: { if !$0 { pendingPush = nil } }
+        ), presenting: pendingPush) { reviewed in
+            Button(reviewed.productionSHA == nil ? "Create branch" : "Push to production", role: reviewed.outgoing.isEmpty ? nil : .destructive) {
+                guard operation.preflight?.mainSHA == reviewed.mainSHA,
+                      operation.preflight?.productionSHA == reviewed.productionSHA,
+                      operation.preflight?.settings == reviewed.settings else { return }
+                Task { await operation.push(confirmation: confirmation) }
+                pendingPush = nil
+            }.help("Confirm the reviewed production branch update")
+            Button("Cancel", role: .cancel) { pendingPush = nil }.help("Return to the release review")
+        } message: { reviewed in
+            Text(reviewed.pushExplanation)
+        }
     }
 
     private func commitList(_ commits: [String]) -> some View {

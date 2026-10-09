@@ -52,13 +52,13 @@ struct MenuBarPopover: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .background {
                             GeometryReader { geometry in
-                                Color.clear.preference(key: WidgetContentHeight.self, value: geometry.size.height)
+                                Color.clear
+                                    .task(id: geometry.size.height) { contentHeight = geometry.size.height }
                             }
                         }
                     }
                     .frame(height: min(contentHeight, max(60, screenHeight - footerHeight - 48)))
                     .scrollDisabled(contentHeight <= max(60, screenHeight - footerHeight - 48))
-                    .onPreferenceChange(WidgetContentHeight.self) { contentHeight = $0 }
                     .onChange(of: selected) { if let selected { proxy.scrollTo(selected) } }
                 }
             }
@@ -80,14 +80,15 @@ struct MenuBarPopover: View {
             }
             .background {
                 GeometryReader { geometry in
-                    Color.clear.preference(key: WidgetFooterHeight.self, value: geometry.size.height)
+                    Color.clear
+                        .task(id: geometry.size.height) { footerHeight = geometry.size.height }
                 }
             }
         }
         .padding(12)
         .frame(width: 380)
+        .fixedSize(horizontal: false, vertical: true)
         .background { WidgetScreenReader { screenHeight = $0 } }
-        .onPreferenceChange(WidgetFooterHeight.self) { footerHeight = $0 }
         .onAppear { update() }
         .onChange(of: appState.listenerStore.listeners.map(\.id)) { update() }
         .onChange(of: appState.listenerStore.lastScan) { update() }
