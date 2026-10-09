@@ -108,12 +108,15 @@ describe("service run modes", () => {
     expect(api.runModes.dockerfile.available).toBe(false);
   });
 
-  it.each(["https://example.com/repo.git", "/outside"])("keeps unsupported context %s blocked", async (context) => {
+  it.each(["https://example.com/repo.git", "/outside"])("delegates context %s to Compose without reading outside the folder", async (context) => {
     const root = folder("blocked-" + context.replace(/[^a-z]/g, ""), {
       "compose.yaml": `services:\n  api:\n    build: ${context}\n`,
       "Dockerfile": "FROM node:22\nEXPOSE 8080\n",
     });
-    await expect(scanFolder(root)).rejects.toThrow("can't be run faithfully");
+    const result = await scanFolder(root);
+    const api = result.services.find((service) => service.name === "api")!;
+    expect(api.runModes.compose.available).toBe(true);
+    expect(api.runModes.dockerfile.available).toBe(false);
   });
 
   it("does not read a Dockerfile symlink outside the project", async () => {

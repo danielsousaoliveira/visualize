@@ -51,6 +51,7 @@ export interface ScanPortMapping {
 }
 
 export interface ScanComposeService {
+  composeFile?: string;
   name: string;
   image: string | null;
   buildContext: string | null;
