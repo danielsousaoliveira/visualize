@@ -7,28 +7,33 @@ struct MainWindow: View {
     @Environment(AppState.self) private var appState
     @State private var pendingRemoval: Project?
     @State private var showingPorts = false
+    @State private var footerHeight: CGFloat = 34
 
     var body: some View {
-        VStack(spacing: 0) {
-            NavigationSplitView {
-                sidebar
-                    .navigationSplitViewColumnWidth(min: 200, ideal: 240)
-                    .toolbar {
-                        ToolbarItem {
-                            Button("Add project", systemImage: "plus", action: addProject).help("Add project")
-                        }
-                        ToolbarItem {
-                            Button("Listening ports", systemImage: "dot.radiowaves.left.and.right") { showingPorts = true }.help("Listening ports")
-                        }
+        NavigationSplitView {
+            sidebar
+                .padding(.bottom, footerHeight)
+                .navigationSplitViewColumnWidth(min: 200, ideal: 240)
+                .toolbar {
+                    ToolbarItem {
+                        Button("Add project", systemImage: "plus", action: addProject).help("Add project")
                     }
-            } detail: {
-                detail
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipped()
+                    ToolbarItem {
+                        Button("Listening ports", systemImage: "dot.radiowaves.left.and.right") { showingPorts = true }.help("Listening ports")
+                    }
+                }
+        } detail: {
+            detail
+                .padding(.bottom, footerHeight)
+        }
+        .overlay(alignment: .bottom) {
             DockerStatusView()
                 .fixedSize(horizontal: false, vertical: true)
-                .layoutPriority(1)
+                .background {
+                    GeometryReader { geometry in
+                        Color.clear.task(id: geometry.size.height) { footerHeight = geometry.size.height }
+                    }
+                }
         }
         .frame(minWidth: 720, minHeight: 440)
         .sheet(isPresented: $showingPorts) { ProcessListenersView().environment(appState).frame(minWidth: 780, minHeight: 420) }
