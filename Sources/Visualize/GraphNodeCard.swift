@@ -42,7 +42,7 @@ struct GraphNodeCard: View {
                     if run?.active == true {
                         Button {
                             Task { await appState.stop(project: project, service: service) }
-                        } label: { Image(systemName: "stop.fill") }
+                        } label: { Image(systemName: "stop.fill") }.help("Stop \(node.name)")
                         .accessibilityLabel("Stop \(node.name)")
                         .disabled(run?.busy == true || run?.stopping == true || (run?.pid == nil && run?.docker == nil) || appState.projectOperations[project.id]?.busy == true)
                     } else {

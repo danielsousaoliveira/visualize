@@ -34,7 +34,7 @@ struct ServicePlayButton: View {
                 }
                 HStack {
                     Spacer()
-                    Button("Cancel") { confirming = false }.keyboardShortcut(.cancelAction)
+                    Button("Cancel") { confirming = false }.help("Cancel").keyboardShortcut(.cancelAction)
                     Button("Run") {
                         let mode = pendingMode
                         let recipe = pendingRecipe
@@ -46,7 +46,7 @@ struct ServicePlayButton: View {
                             }
                         }
                         confirming = false
-                    }.keyboardShortcut(.defaultAction)
+                    }.help("Run").keyboardShortcut(.defaultAction)
                 }
             }.padding(24).frame(minWidth: 480)
         }

@@ -32,4 +32,12 @@ struct ProjectRunPlanTests {
         let plan = ProjectRunPlan(result: result)
         #expect(plan.layers == [[[ids[2]]], [[ids[1]]], [[ids[0]]]])
     }
+
+    @Test func dockerModeNeverFallsBackToLocalCommands() throws {
+        let result = try ScanDecoder.decode(Data(contentsOf: ScanDecoderTests.goldenDirectory.appending(path: "scan-node-dev.json")))
+        let service = try #require(result.services.first)
+        #expect(ProjectStartMode.docker.resolve(service, remembered: .local) == nil)
+        #expect(ProjectStartMode.local.resolve(service, remembered: .local) == .local)
+    }
+
 }

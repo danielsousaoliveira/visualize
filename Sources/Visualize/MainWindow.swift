@@ -11,18 +11,20 @@ struct MainWindow: View {
     var body: some View {
         NavigationSplitView {
             sidebar
-                .safeAreaInset(edge: .bottom) { DockerStatusView().padding() }
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240)
                 .toolbar {
                     ToolbarItem {
-                        Button("Add project", systemImage: "plus", action: addProject)
+                        Button("Add project", systemImage: "plus", action: addProject).help("Add project")
                     }
                     ToolbarItem {
-                        Button("Listening ports", systemImage: "dot.radiowaves.left.and.right") { showingPorts = true }
+                        Button("Listening ports", systemImage: "dot.radiowaves.left.and.right") { showingPorts = true }.help("Listening ports")
                     }
                 }
         } detail: {
             detail
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            DockerStatusView()
         }
         .frame(minWidth: 720, minHeight: 440)
         .sheet(isPresented: $showingPorts) { ProcessListenersView().environment(appState).frame(minWidth: 780, minHeight: 420) }
@@ -30,7 +32,7 @@ struct MainWindow: View {
             PortConflictSheet(conflict: conflict)
         }
         .alert("Port lookup failed", isPresented: Binding(get: { appState.portLookupError != nil }, set: { if !$0 { appState.portLookupError = nil } })) {
-            Button("OK") { appState.portLookupError = nil }
+            Button("OK") { appState.portLookupError = nil }.help("OK")
         } message: {
             Text(appState.portLookupError ?? "")
         }
@@ -40,14 +42,14 @@ struct MainWindow: View {
             titleVisibility: .visible,
             presenting: pendingRemoval
         ) { project in
-            Button("Remove", role: .destructive) { appState.remove(project.id) }
+            Button("Remove", role: .destructive) { appState.remove(project.id) }.help("Remove")
         } message: { _ in
             Text("The folder and its files stay on disk.")
         }
         .alert(
             "Project library",
             isPresented: isShowingLibraryError,
-            actions: { Button("OK") {} },
+            actions: { Button("OK") {}.help("OK") },
             message: { Text(appState.libraryError ?? "") }
         )
     }
@@ -59,7 +61,7 @@ struct MainWindow: View {
             ContentUnavailableView {
                 Label("No projects yet", systemImage: "folder")
             } actions: {
-                Button("Add project", action: addProject)
+                Button("Add project", action: addProject).help("Add project")
             }
         } else {
             List(selection: $appState.selection) {
@@ -90,9 +92,9 @@ struct MainWindow: View {
             .navigationTitle(project.name)
             .toolbar {
                 ToolbarItemGroup {
-                    Button("Reveal in Finder", systemImage: "folder") { reveal(project) }
+                    Button("Reveal in Finder", systemImage: "folder") { reveal(project) }.help("Reveal in Finder")
                         .disabled(!project.folderExists)
-                    Button("Rescan", systemImage: "arrow.clockwise") { rescan(project) }
+                    Button("Rescan", systemImage: "arrow.clockwise") { rescan(project) }.help("Rescan")
                         .disabled(!project.folderExists || appState.isScanning(project.id))
                 }
             }
@@ -105,15 +107,15 @@ struct MainWindow: View {
     private func menu(for project: Project) -> some View {
         let isScanning = appState.isScanning(project.id)
         if project.folderExists {
-            Button("Rescan") { rescan(project) }
+            Button("Rescan") { rescan(project) }.help("Rescan")
                 .disabled(isScanning)
-            Button("Reveal in Finder") { reveal(project) }
+            Button("Reveal in Finder") { reveal(project) }.help("Reveal in Finder")
         } else {
-            Button("Locate…") { locate(project) }
+            Button("Locate…") { locate(project) }.help("Locate…")
                 .disabled(isScanning)
         }
         Divider()
-        Button("Remove…", role: .destructive) { pendingRemoval = project }
+        Button("Remove…", role: .destructive) { pendingRemoval = project }.help("Remove…")
     }
 
     private var isConfirmingRemoval: Binding<Bool> {

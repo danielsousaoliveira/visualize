@@ -27,9 +27,9 @@ struct PortConflictSheet: View {
             Text("Start anyway allows frameworks to choose their next free port.")
                 .foregroundStyle(.secondary)
             HStack {
-                Button("Cancel") { appState.portConflict = nil }.keyboardShortcut(.cancelAction)
+                Button("Cancel") { appState.portConflict = nil }.help("Cancel").keyboardShortcut(.cancelAction)
                 Spacer()
-                Button("Start anyway") { Task { await appState.resolve(conflict, stopOwners: false) } }
+                Button("Start anyway") { Task { await appState.resolve(conflict, stopOwners: false) } }.help("Start anyway")
                 Button("Stop it and start") {
                     Task { await appState.resolve(conflict, stopOwners: true) }
                 }

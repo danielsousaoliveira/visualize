@@ -25,11 +25,11 @@ struct ServiceCard: View {
                         if run.active {
                             Button("Stop", systemImage: "stop.fill") {
                                 Task { await appState.stop(project: project, service: service) }
-                            }.disabled(run.stopping || run.busy || (run.pid == nil && run.docker == nil))
+                            }.help("Stop").disabled(run.stopping || run.busy || (run.pid == nil && run.docker == nil))
                         }
                         Button("Restart", systemImage: "arrow.clockwise") {
                             Task { await appState.restart(project: project, service: service) }
-                        }.disabled(run.stopping || run.busy || (run.pid == nil && run.docker == nil) || (run.docker != nil && appState.dockerReason(project: project, service: service) != nil))
+                        }.help("Restart").disabled(run.stopping || run.busy || (run.pid == nil && run.docker == nil) || (run.docker != nil && appState.dockerReason(project: project, service: service) != nil))
                     }
                     ServicePlayButton(project: project, service: service)
                     Text(service.rootDirectory).font(.callout.monospaced()).foregroundStyle(.secondary)
@@ -60,7 +60,7 @@ struct ServiceCard: View {
                         pendingRecipe = current
                         confirmingRestart = true
                         showConfirmation = true
-                    }.disabled(run.stopping || run.busy || (run.pid == nil && run.docker == nil))
+                    }.help("Restart with new command").disabled(run.stopping || run.busy || (run.pid == nil && run.docker == nil))
                 }
                 if let command = service.devCommand {
                     ScrollView(.horizontal) {
@@ -83,6 +83,7 @@ struct ServiceCard: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .help("Choose how to run this service")
                 .disabled(run?.active == true || run?.busy == true || run?.stopping == true)
                 if environment == nil {
                     Text("Env status unavailable — rescan to check").font(.callout).foregroundStyle(.secondary)
@@ -99,6 +100,7 @@ struct ServiceCard: View {
                         .padding(.top, 6)
                     }
                     .font(.callout)
+                    .help("Show missing environment variable names")
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -112,7 +114,7 @@ struct ServiceCard: View {
                 Text(pendingRecipe?.workingDirectory ?? "").font(.callout.monospaced()).textSelection(.enabled)
                 HStack {
                     Spacer()
-                    Button("Cancel") { showConfirmation = false }.keyboardShortcut(.cancelAction)
+                    Button("Cancel") { showConfirmation = false }.help("Cancel").keyboardShortcut(.cancelAction)
                     Button("Run") {
                         if let recipe = pendingRecipe {
                             Task {
@@ -124,7 +126,7 @@ struct ServiceCard: View {
                             }
                         }
                         showConfirmation = false
-                    }.keyboardShortcut(.defaultAction)
+                    }.help("Run").keyboardShortcut(.defaultAction)
                 }
             }.padding(24).frame(minWidth: 480)
         }

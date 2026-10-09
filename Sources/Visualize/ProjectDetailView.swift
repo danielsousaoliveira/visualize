@@ -6,6 +6,7 @@ struct ProjectDetailView: View {
     @State private var showDatabaseConnections = false
     @State private var graphSelected = false
     @State private var logServiceID: String?
+    @State private var startMode: ProjectStartMode = .configured
     @State private var pendingStartMode: ProjectStartMode?
     @State private var pendingCommands: [RunRecipe] = []
     @State private var showStartConfirmation = false
@@ -20,11 +21,11 @@ struct ProjectDetailView: View {
         Group {
             if project.folderExists {
                 VStack(spacing: 0) {
-                    if let error {
-                        errorBanner(error)
-                        Divider()
-                    }
                     content
+                    if let error {
+                        Divider()
+                        errorBanner(error)
+                    }
                 }
             } else {
                 ContentUnavailableView {
@@ -32,15 +33,15 @@ struct ProjectDetailView: View {
                 } description: {
                     Text("\(project.folderPath) no longer exists. It may have been moved or renamed.")
                 } actions: {
-                    Button("Locate…", action: onLocate)
-                    Button("Remove", role: .destructive, action: onRemove)
+                    Button("Locate…", action: onLocate).help("Locate…")
+                    Button("Remove", role: .destructive, action: onRemove).help("Remove")
                 }
             }
         }
         .toolbar {
-            Button("Connect", systemImage: "externaldrive") { showDatabaseConnections = true }
+            Button("Connect", systemImage: "externaldrive") { showDatabaseConnections = true }.help("Manage database connections")
                 .disabled(!project.folderExists)
-            Button("Push to production", systemImage: "arrow.up.circle") { showRelease = true }
+            Button("Push to production", systemImage: "arrow.up.circle") { showRelease = true }.help("Push to production")
                 .disabled(!project.folderExists)
         }
         .sheet(isPresented: $showDatabaseConnections) {
@@ -51,7 +52,7 @@ struct ProjectDetailView: View {
                 ScrollView {
                     ReleasePanel(project: project, operation: appState.releaseOperation(project: project))
                 }.frame(maxHeight: 640)
-                Button("Close") { showRelease = false }
+                Button("Close") { showRelease = false }.help("Close")
                     .keyboardShortcut(.cancelAction)
                     .padding([.trailing, .bottom], 24)
             }
@@ -69,11 +70,11 @@ struct ProjectDetailView: View {
                 }.frame(maxHeight: 320)
                 HStack {
                     Spacer()
-                    Button("Cancel") { showStartConfirmation = false }.keyboardShortcut(.cancelAction)
+                    Button("Cancel") { showStartConfirmation = false }.help("Cancel").keyboardShortcut(.cancelAction)
                     Button("Start all") {
                         if let mode = pendingStartMode { Task { await appState.startAll(project: project, mode: mode) } }
                         showStartConfirmation = false
-                    }.keyboardShortcut(.defaultAction)
+                    }.help("Start all").keyboardShortcut(.defaultAction)
                 }
             }.padding(24).frame(minWidth: 480)
         }
@@ -110,54 +111,53 @@ struct ProjectDetailView: View {
                         graphSelected = false
                     }.id(project.id)
                 } else {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 24) {
-                            header(result)
-                            if let operation = appState.projectOperations[project.id] {
-                                GroupBox("Project progress") {
-                                    VStack(alignment: .leading, spacing: 8) {
-                                        ForEach(operation.warnings, id: \.self) { Text($0).foregroundStyle(.orange) }
-                                        ForEach(operation.order, id: \.self) { id in
-                                            HStack {
-                                                Text(result.services.first { $0.id == id }?.name ?? id)
-                                                Spacer()
-                                                Text(operation.statuses[id] ?? "waiting").foregroundStyle(.secondary)
-                                            }
-                                        }
-                                    }.frame(maxWidth: .infinity, alignment: .leading)
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 24) {
+                                header(result)
+                                if let operation = appState.projectOperations[project.id], !operation.order.isEmpty {
+                                    ProjectOperationView(project: project, operation: operation)
                                 }
-                            }
-                            DisclosureGroup("Warnings (\(result.warnings.count))") {
-                                warnings(result.warnings)
-                            }
-                            if !result.services.contains(where: {
-                                $0.runModes.local.available || $0.runModes.compose.available || $0.runModes.dockerfile.available
-                            }) && result.composeServices.isEmpty {
-                                ContentUnavailableView("Nothing runnable detected in this folder", systemImage: "magnifyingglass")
-                                warnings(result.warnings)
-                            }
-                            ServiceLogsPanel(project: project, services: result.services, requestedSelection: logServiceID)
-                            if !result.services.isEmpty {
-                                sectionTitle("Services", count: result.services.count)
-                                ForEach(result.services) { service in
-                                    ServiceCard(project: project, service: service, environment: result.envRequirements.first { $0.serviceId == service.id })
+                                if !result.services.contains(where: {
+                                    $0.runModes.local.available || $0.runModes.compose.available || $0.runModes.dockerfile.available
+                                }) && result.composeServices.isEmpty {
+                                    ContentUnavailableView("Nothing runnable detected in this folder", systemImage: "magnifyingglass")
                                 }
-                            }
-                            if !result.infra.isEmpty {
-                                sectionTitle("Infra", count: result.infra.count)
-                                ForEach(result.infra, id: \.id) { infra in
-                                    InfraCard(infra: infra, services: result.services)
+                                let providers = Set(result.infra.compactMap(\.providedBy))
+                                let services = result.services.filter { !providers.contains($0.id) }
+                                if !services.isEmpty {
+                                    sectionTitle("Services", count: services.count)
+                                    ForEach(services) { service in
+                                        ServiceCard(project: project, service: service, environment: result.envRequirements.first { $0.serviceId == service.id })
+                                    }
                                 }
-                            }
-                            if !result.composeFiles.isEmpty {
-                                sectionTitle("Compose", count: result.composeFiles.count)
-                                ForEach(result.composeFiles, id: \.self) { file in
-                                    ComposeFileCard(file: file, result: result)
+                                if !result.infra.isEmpty {
+                                    sectionTitle("Databases", count: result.infra.count)
+                                    ForEach(result.infra, id: \.id) { infra in
+                                        DatabaseServiceCard(project: project, infra: infra, result: result)
+                                    }
                                 }
+                                if !result.composeFiles.isEmpty {
+                                    sectionTitle("Compose", count: result.composeFiles.count)
+                                    ForEach(result.composeFiles, id: \.self) { file in
+                                        ComposeFileCard(file: file, result: result)
+                                    }
+                                }
+                                let messages = result.warnings + (appState.projectOperations[project.id]?.warnings ?? [])
+                                if !messages.isEmpty {
+                                    DisclosureGroup("Warnings (\(messages.count))") {
+                                        warnings(messages)
+                                    }.help("Show or hide scan and operation warnings")
+                                }
+                                ServiceLogsPanel(project: project, services: result.services, requestedSelection: logServiceID)
+                                    .id("service-logs")
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(24)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(24)
+                        .onChange(of: logServiceID, initial: true) { _, selection in
+                            if selection != nil { proxy.scrollTo("service-logs", anchor: .top) }
+                        }
                     }
                 }
             }
@@ -168,7 +168,7 @@ struct ProjectDetailView: View {
             ContentUnavailableView {
                 Label("Not scanned yet", systemImage: "magnifyingglass")
             } actions: {
-                Button("Rescan", action: onRescan)
+                Button("Rescan", action: onRescan).help("Scan this folder and its subfolders again")
             }
         } else {
             ContentUnavailableView {
@@ -176,7 +176,7 @@ struct ProjectDetailView: View {
             } description: {
                 Text("Rescan to try again.")
             } actions: {
-                Button("Rescan", action: onRescan)
+                Button("Rescan", action: onRescan).help("Scan this folder and its subfolders again")
             }
         }
     }
@@ -184,17 +184,35 @@ struct ProjectDetailView: View {
     private func header(_ result: ScanResult) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(project.name).font(.title.bold())
+                Text(project.name).font(.title.bold()).lineLimit(1)
                 Spacer()
                 if isScanning { ProgressView().controlSize(.small) }
-                Menu("Start all") {
-                    ForEach(ProjectStartMode.allCases) { mode in
-                        Button(mode.rawValue) { requestStart(mode) }
+            }
+            HStack {
+                Picker("Start mode", selection: $startMode) {
+                    Text("Configured").tag(ProjectStartMode.configured)
+                    if result.services.contains(where: { ServiceMode.available(for: $0).contains(.local) }) {
+                        Text("Local").tag(ProjectStartMode.local)
                     }
-                }.disabled(appState.projectOperations[project.id]?.busy == true || isScanning)
+                    if dockerStartAvailable(result) {
+                        Text("Docker").tag(ProjectStartMode.docker)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .fixedSize()
+                .disabled(appState.projectOperations[project.id]?.busy == true || isScanning)
+                .help("Choose how to start the services; unsupported services stay stopped")
+                .onChange(of: dockerStartAvailable(result)) { _, available in
+                    if !available && startMode == .docker { startMode = .configured }
+                }
+                Button("Start all", systemImage: "play.fill") { requestStart(startMode) }
+                    .disabled(appState.projectOperations[project.id]?.busy == true || isScanning || !canStart(result))
+                    .help("Start stopped services using the selected mode")
                 Button("Stop all") { Task { await appState.stopAll(project: project) } }
-                    .disabled(appState.projectOperations[project.id]?.busy == true)
-                Button("Rescan", systemImage: "arrow.clockwise", action: onRescan)
+                    .disabled(appState.projectOperations[project.id]?.busy == true || !hasManagedServices)
+                    .help("Stop services started by visualize")
+                Button("Rescan", systemImage: "arrow.clockwise", action: onRescan).help("Scan this folder and its subfolders again")
                     .disabled(isScanning || appState.projectOperations[project.id]?.busy == true)
             }
             Text(project.folderPath)
@@ -210,6 +228,28 @@ struct ProjectDetailView: View {
             if error != nil {
                 Text("Showing the last successful scan").font(.callout).foregroundStyle(.secondary)
             }
+        }
+    }
+
+    private var hasManagedServices: Bool {
+        appState.serviceRuns.contains { key, run in
+            key.hasPrefix(project.id.uuidString + ":") && (run.active || run.docker != nil)
+        }
+    }
+
+    private func dockerStartAvailable(_ result: ScanResult) -> Bool {
+        result.services.contains { service in
+            ServiceMode.available(for: service).contains { mode in
+                mode != .local && appState.dockerState.unavailableReason(compose: mode == .compose) == nil
+            }
+        }
+    }
+
+    private func canStart(_ result: ScanResult) -> Bool {
+        result.services.contains { service in
+            guard appState.serviceRuns[appState.runKey(project: project, service: service)]?.active != true,
+                  let mode = startMode.resolve(service, remembered: appState.mode(project: project, service: service)) else { return false }
+            return mode == .local || appState.dockerState.unavailableReason(compose: mode == .compose) == nil
         }
     }
 

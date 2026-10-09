@@ -25,16 +25,16 @@ struct ProjectGraphView: View {
                         HStack {
                             Text(project.name).font(.headline)
                             Spacer()
-                            Button("−") { changeZoom(zoom / 1.2, size: geometry.size) }
+                            Button("−") { changeZoom(zoom / 1.2, size: geometry.size) }.help("Zoom out")
                                 .accessibilityLabel("Zoom out")
                             Text("\(Int((zoom * 100).rounded()))%").monospacedDigit().frame(width: 48)
-                            Button("+") { changeZoom(zoom * 1.2, size: geometry.size) }
+                            Button("+") { changeZoom(zoom * 1.2, size: geometry.size) }.help("Zoom in")
                                 .accessibilityLabel("Zoom in")
-                            Button("Fit") { fit(geometry.size) }
+                            Button("Fit") { fit(geometry.size) }.help("Fit the graph at up to 100% zoom")
                             Button("Reset layout") {
                                 appState.resetGraphLayout(projectID: project.id)
                                 fit(geometry.size)
-                            }
+                            }.help("Reset layout")
                         }.padding(12)
                         ZStack(alignment: .topLeading) {
                             GraphScrollView(onMagnify: { delta in
@@ -107,7 +107,7 @@ struct ProjectGraphView: View {
               let top = positions.map({ $0.y - GraphNodeCard.size.height / 2 }).min(),
               let bottom = positions.map({ $0.y + GraphNodeCard.size.height / 2 }).max() else { return }
         let canvasHeight = max(1, size.height - 52)
-        zoom = min(2, max(0.25, min(max(1, size.width - 64) / (right - left),
+        zoom = min(1, max(0.25, min(max(1, size.width - 64) / (right - left),
                                    max(1, canvasHeight - 64) / (bottom - top))))
         offset = CGSize(width: size.width / 2 - (left + right) / 2 * zoom,
                         height: canvasHeight / 2 - (top + bottom) / 2 * zoom)
@@ -150,14 +150,14 @@ struct ProjectGraphView: View {
                 HStack {
                     Text(node.name).font(.title2.bold())
                     Spacer()
-                    Button("Close", systemImage: "xmark") { selected = nil }.labelStyle(.iconOnly)
+                    Button("Close", systemImage: "xmark") { selected = nil }.help("Close the service inspector").labelStyle(.iconOnly)
                 }
                 if let service = project.lastResult?.services.first(where: { $0.id == node.id }) {
                     ServiceCard(project: project, service: service, environment: project.lastResult?.envRequirements.first { $0.serviceId == service.id })
                     Button("Logs", systemImage: "terminal") {
                         _ = appState.logs(project: project, service: service)
                         onLogs(service.id)
-                    }
+                    }.help("Logs")
                 } else if let infra = project.lastResult?.infra.fillingMissingIds().first(where: { $0.id == node.id }) {
                     InfraCard(infra: infra, services: project.lastResult?.services ?? [])
                 } else {
@@ -181,7 +181,7 @@ struct ProjectGraphView: View {
                         Text([edge.kind.rawValue, edge.label].filter { !$0.isEmpty }.joined(separator: " • "))
                             .font(.caption).foregroundStyle(edge.isCyclic ? Color.orange : Color.secondary)
                     }
-                }.buttonStyle(.plain)
+                }.help("Show the connected service").buttonStyle(.plain)
             }
         }
     }

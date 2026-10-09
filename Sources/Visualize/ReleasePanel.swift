@@ -39,7 +39,7 @@ struct ReleasePanel: View {
                             operation.preflight = reviewed
                         }
                     }
-                }.disabled(operation.busy)
+                }.help("Fetch and review").disabled(operation.busy)
                 if operation.busy { ProgressView().controlSize(.small) }
             }
             if let reviewed = operation.preflight {
@@ -55,10 +55,10 @@ struct ReleasePanel: View {
                     TextField("Production branch name", text: $confirmation)
                 }
                 HStack {
-                    Button("Cancel review") { operation.preflight = nil; confirmation = "" }
+                    Button("Cancel review") { operation.preflight = nil; confirmation = "" }.help("Cancel review")
                     Button(reviewed.productionSHA == nil ? "Create production branch" : "Push to production") {
                         Task { await operation.push(confirmation: confirmation) }
-                    }.disabled(operation.busy || reviewed.unchanged || (reviewed.requiresConfirmation && confirmation != reviewed.settings.production))
+                    }.help("Push the reviewed commit to the production branch").disabled(operation.busy || reviewed.unchanged || (reviewed.requiresConfirmation && confirmation != reviewed.settings.production))
                 }
             }
             if let result = operation.result { Text(result).textSelection(.enabled) }

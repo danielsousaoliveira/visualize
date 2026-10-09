@@ -26,19 +26,19 @@ struct DatabaseConnectionsView: View {
             HStack {
                 Menu("Saved connections") {
                     ForEach(saved) { connection in
-                        Button(connection.name) { edit(connection) }
+                        Button(connection.name) { edit(connection) }.help("Edit this saved connection")
                     }
-                }.disabled(saved.isEmpty)
+                }.disabled(saved.isEmpty).help("Choose a saved database connection")
                 Menu("Detected connections") {
                     ForEach(candidates) { candidate in
-                        Button(candidate.source) { use(candidate) }
+                        Button(candidate.source) { use(candidate) }.help("Use this detected database connection")
                     }
-                }.disabled(candidates.isEmpty)
+                }.disabled(candidates.isEmpty).help("Choose a database detected in this project")
                 Button("New connection") {
                     settings = DatabaseConnectionSettings()
                     password = ""
                     message = nil
-                }
+                }.help("New connection")
                 if loading { ProgressView().controlSize(.small) }
             }
             if settings.engine == .postgres {
@@ -61,7 +61,7 @@ struct DatabaseConnectionsView: View {
                 } else {
                     HStack {
                         TextField("File", text: $settings.filePath)
-                        Button("Choose…", action: chooseFile)
+                        Button("Choose…", action: chooseFile).help("Choose…")
                     }
                 }
             }
@@ -81,7 +81,7 @@ struct DatabaseConnectionsView: View {
             }
             if appState.databaseSessions[settings.id] != nil {
                 Label("Connected read-only", systemImage: "lock.fill").foregroundStyle(.secondary)
-                Button("Disconnect") { appState.disconnectDatabase(settings.id); message = nil }
+                Button("Disconnect") { appState.disconnectDatabase(settings.id); message = nil }.help("Disconnect")
             }
             HStack {
                 if saved.contains(where: { $0.id == settings.id }) {
@@ -92,23 +92,23 @@ struct DatabaseConnectionsView: View {
                             password = ""
                             message = "Connection deleted"
                         }
-                    }
+                    }.help("Delete")
                 }
                 Spacer()
-                Button("Test connection") { connect(retain: false) }
+                Button("Test connection") { connect(retain: false) }.help("Test connection")
                 Button("Save") {
                     report {
                         try appState.saveDatabaseConnection(settings, password: password, projectID: project.id)
                         message = "Connection saved"
                     }
-                }
-                Button("Connect") { connect(retain: true) }
+                }.help("Save")
+                Button("Connect") { connect(retain: true) }.help("Connect")
             }
             .disabled(busy || loading)
             HStack {
                 if busy { ProgressView().controlSize(.small) }
                 Spacer()
-                Button("Close") { dismiss() }.keyboardShortcut(.cancelAction).disabled(busy)
+                Button("Close") { dismiss() }.help("Close").keyboardShortcut(.cancelAction).disabled(busy)
             }
         }
         .padding(24)

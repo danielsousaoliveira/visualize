@@ -19,7 +19,7 @@ struct AppSettingsView: View {
                     TextField("Start", text: $lower).accessibilityLabel("Start port")
                     Text("to")
                     TextField("End", text: $upper).accessibilityLabel("End port")
-                    Button("Apply") { settings.setRange(lower: lower, upper: upper) }
+                    Button("Apply") { settings.setRange(lower: lower, upper: upper) }.help("Apply")
                 }
                 .frame(width: 270)
                 .onSubmit { settings.setRange(lower: lower, upper: upper) }
@@ -34,7 +34,7 @@ struct AppSettingsView: View {
             Button("Reset to defaults") {
                 settings.reset()
                 loadFields()
-            }
+            }.help("Reset to defaults")
         }
         .formStyle(.grouped)
         .frame(width: 520)

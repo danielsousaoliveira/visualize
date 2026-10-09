@@ -4,7 +4,7 @@ import AppKit
 struct ServiceLogsPanel: View {
     @Environment(AppState.self) private var appState
     @State private var selected: String?
-    @State private var expanded = true
+    @State private var expanded = false
     let project: Project
     let services: [ScanService]
     var requestedSelection: String? = nil
@@ -24,15 +24,19 @@ struct ServiceLogsPanel: View {
             DisclosureGroup("Service logs", isExpanded: $expanded) {
                 if expanded {
                     VStack(alignment: .leading, spacing: 12) {
-                        ScrollView(.horizontal) {
-                            HStack {
+                        HStack {
+                            Spacer()
+                            Picker("Service", selection: Binding(
+                                get: { selected ?? available.first?.id ?? "" },
+                                set: { selected = $0 }
+                            )) {
                                 ForEach(available) { service in
-                                    Button(service.name) { selected = service.id }
-                                        .accessibilityValue((selected ?? available.first?.id) == service.id ? "Selected" : "")
-                                        .buttonStyle(.bordered)
-                                        .tint((selected ?? available.first?.id) == service.id ? .accentColor : .secondary)
+                                    Text(service.name).tag(service.id)
                                 }
                             }
+                            .pickerStyle(.menu)
+                            .fixedSize()
+                            .help("Choose the service whose logs to show")
                         }
                         if let service = available.first(where: { $0.id == (selected ?? available.first?.id) }) {
                             ServiceLogView(log: appState.logs(project: project, service: service), docker: appState.serviceRuns[appState.runKey(project: project, service: service)]?.docker, directory: project.folderPath)
@@ -42,6 +46,10 @@ struct ServiceLogsPanel: View {
                 }
             }
             .onAppear { if let requestedSelection { selected = requestedSelection; expanded = true } }
+            .help("Show or hide service logs")
+            .onChange(of: available.map(\.id), initial: true) {
+                if !available.contains(where: { $0.id == selected }) { selected = available.first?.id }
+            }
             .onChange(of: requestedSelection) { _, value in
                 if let value { selected = value; expanded = true }
             }

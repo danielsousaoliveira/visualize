@@ -36,7 +36,7 @@ extension AppState {
             for id in component {
                 guard let service = services[id] else { continue }
                 if serviceRuns[runKey(project: project, service: service)]?.active == true {
-                    operation.statuses[id] = "skipped — already running"
+                    operation.statuses[id] = "already running"
                     continue
                 }
                 let batch: [ScanService]
@@ -66,7 +66,7 @@ extension AppState {
             }
         }
         guard let service = batch.first, let selected = modes[service.id] else {
-            for service in batch { operation.statuses[service.id] = "skipped — no run mode" }
+            for service in batch { operation.statuses[service.id] = "unavailable — no matching run mode" }
             return
         }
         for item in batch { operation.statuses[item.id] = "starting" }
@@ -102,14 +102,21 @@ extension AppState {
             result.infra += previous.infra.filter { entry in !result.infra.contains { $0.id == entry.id } }
         }
         let operation = ProjectOperation()
+        operation.action = "Stopping services"
+        operation.completion = "Services stopped"
         projectOperations[project.id] = operation
         defer { operation.busy = false }
         let plan = ProjectRunPlan(result: result)
         operation.order = plan.layers.reversed().flatMap { $0.flatMap { $0 } }
-        for service in result.services { operation.statuses[service.id] = "waiting" }
+        let managed = Set(result.services.filter {
+            let run = serviceRuns[runKey(project: project, service: $0)]
+            return run?.active == true || run?.docker != nil
+        }.map(\.id))
+        operation.order = operation.order.filter { managed.contains($0) }
+        for id in operation.order { operation.statuses[id] = "waiting" }
         for layer in plan.layers.reversed() {
             await withTaskGroup(of: Void.self) { tasks in
-                for id in layer.flatMap({ $0 }) {
+                for id in layer.flatMap({ $0 }) where managed.contains(id) {
                     guard let service = result.services.first(where: { $0.id == id }) else { continue }
                     tasks.addTask { await self.stopProjectService(project: project, service: service, operation: operation) }
                 }
@@ -119,7 +126,7 @@ extension AppState {
 
     private func stopProjectService(project: Project, service: ScanService, operation: ProjectOperation) async {
         guard let run = serviceRuns[runKey(project: project, service: service)], run.active || run.docker != nil else {
-            operation.statuses[service.id] = "skipped — not started by visualize"
+            operation.statuses[service.id] = "not managed by visualize"
             return
         }
         operation.statuses[service.id] = "stopping"

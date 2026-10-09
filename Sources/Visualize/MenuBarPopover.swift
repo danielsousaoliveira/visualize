@@ -1,9 +1,13 @@
 import SwiftUI
+import AppKit
 
 struct MenuBarPopover: View {
     @Environment(AppState.self) private var appState
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openURL) private var openURL
+    @State private var contentHeight: CGFloat = 60
+    @State private var footerHeight: CGFloat = 60
+    @State private var screenHeight: CGFloat = NSScreen.main?.visibleFrame.height ?? 700
     @State private var displayed: [ProcessListenerGroup] = []
     @State private var hovered: String?
     @State private var selected: String?
@@ -22,48 +26,68 @@ struct MenuBarPopover: View {
                     .frame(maxWidth: .infinity, minHeight: 60)
             } else {
                 ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        ForEach(displayed) { group in
-                            HStack {
-                                Text(group.name).font(.headline).lineLimit(1)
-                                Spacer()
-                                if group.id != "other" && appState.widgetStopManagedAvailable(group) {
-                                    Button("Stop managed") {
-                                        Task { await appState.widgetStopManaged(group) }
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 12) {
+                            ForEach(displayed) { group in
+                                HStack {
+                                    Text(group.name).font(.headline).lineLimit(1)
+                                    Spacer()
+                                    if group.id != "other" && appState.widgetStopManagedAvailable(group) {
+                                        Button("Stop managed") {
+                                            Task { await appState.widgetStopManaged(group) }
+                                        }
+                                        .font(.caption)
+                                        .help("Stop managed services shown in this group")
                                     }
-                                    .font(.caption)
-                                    .help("Stop managed services shown in this group")
                                 }
-                            }
-                            ForEach(group.listeners) { listener in
-                                if rows.contains(where: { $0.id == listener.id }) {
-                                    row(listener).id(listener.id)
-                                } else {
-                                    Color.clear.frame(height: 48)
+                                ForEach(group.listeners) { listener in
+                                    if rows.contains(where: { $0.id == listener.id }) {
+                                        row(listener).id(listener.id)
+                                    } else {
+                                        Color.clear.frame(height: 48)
+                                    }
                                 }
                             }
                         }
+                        .fixedSize(horizontal: false, vertical: true)
+                        .background {
+                            GeometryReader { geometry in
+                                Color.clear.preference(key: WidgetContentHeight.self, value: geometry.size.height)
+                            }
+                        }
                     }
-                }.frame(maxHeight: 420)
-                .onChange(of: selected) { if let selected { proxy.scrollTo(selected) } }
+                    .frame(height: min(contentHeight, max(60, screenHeight - footerHeight - 48)))
+                    .scrollDisabled(contentHeight <= max(60, screenHeight - footerHeight - 48))
+                    .onPreferenceChange(WidgetContentHeight.self) { contentHeight = $0 }
+                    .onChange(of: selected) { if let selected { proxy.scrollTo(selected) } }
                 }
             }
-            if appState.dockerState.unavailableReason() != nil {
-                Text("Container ports are not shown").font(.caption).foregroundStyle(.secondary)
+            VStack(spacing: 12) {
+                if appState.dockerState.unavailableReason() != nil {
+                    Text("Container ports are not shown").font(.caption).foregroundStyle(.secondary)
+                }
+                if let error = appState.listenerStore.actionError ?? appState.portLookupError {
+                    Text(error).font(.caption).foregroundStyle(.red)
+                }
+                Divider()
+                HStack {
+                    Button("Open visualize", action: openMainWindow)
+                        .help("Bring visualize to the front")
+                    Spacer()
+                    Button("Quit") { NSApp.terminate(nil) }
+                        .help("Quit visualize")
+                }
             }
-            if let error = appState.listenerStore.actionError ?? appState.portLookupError {
-                Text(error).font(.caption).foregroundStyle(.red)
-            }
-            Divider()
-            HStack {
-                Button("Open visualize", action: openMainWindow)
-                Spacer()
-                Button("Quit") { NSApp.terminate(nil) }
+            .background {
+                GeometryReader { geometry in
+                    Color.clear.preference(key: WidgetFooterHeight.self, value: geometry.size.height)
+                }
             }
         }
         .padding(12)
         .frame(width: 380)
+        .background { WidgetScreenReader { screenHeight = $0 } }
+        .onPreferenceChange(WidgetFooterHeight.self) { footerHeight = $0 }
         .onAppear { update() }
         .onChange(of: appState.listenerStore.listeners.map(\.id)) { update() }
         .onChange(of: appState.listenerStore.lastScan) { update() }
@@ -83,8 +107,8 @@ struct MenuBarPopover: View {
             return .handled
         }
         .confirmationDialog("Stop listening service?", isPresented: Binding(get: { appState.pendingWidgetStop != nil }, set: { if !$0 { appState.pendingWidgetStop = nil } }), titleVisibility: .visible, presenting: appState.pendingWidgetStop) { listener in
-            Button("Stop \(listener.serviceName ?? listener.name)", role: .destructive) { act(listener, externalStopConfirmed: true) }
-            Button("Cancel", role: .cancel) {}
+            Button("Stop \(listener.serviceName ?? listener.name)", role: .destructive) { act(listener, externalStopConfirmed: true) }.help("Stop this service")
+            Button("Cancel", role: .cancel) {}.help("Cancel")
         } message: { listener in
             Text("Stop the service on port \(listener.port)? The external listening process receives SIGTERM.")
         }
@@ -105,6 +129,7 @@ struct MenuBarPopover: View {
             Spacer(minLength: 4)
             Button(String(listener.port)) { selected = listener.id; openPort(listener) }
                 .buttonStyle(.link).monospacedDigit()
+                .help("Open localhost:\(listener.port) in the browser")
             HStack(spacing: 6) {
                 Button { requestStop(listener) } label: { Image(systemName: "stop.fill") }
                     .help("Stop")

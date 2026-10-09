@@ -368,6 +368,7 @@ final class AppState {
 
     private(set) var dockerState: DockerState = .checking
     private(set) var isCheckingDocker = false
+    @ObservationIgnored private var dockerCheckTask: Task<Void, Never>?
     var dockerOverridePath: String? {
         get { settings.dockerPath.isEmpty ? nil : settings.dockerPath }
         set { settings.setDockerPath(newValue ?? "") }
@@ -376,7 +377,6 @@ final class AppState {
     func checkDocker() async {
         guard !isCheckingDocker else { return }
         isCheckingDocker = true
-        dockerState = .checking
         defer { isCheckingDocker = false }
         repeat {
             let path = dockerOverridePath
@@ -403,7 +403,18 @@ final class AppState {
         settings.onChange = { [weak self] in self?.applySettings() }
         applySettings()
         loadLibrary()
+        dockerCheckTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.checkDocker()
+                do { try await Task.sleep(for: .seconds(15)) }
+                catch { return }
+            }
+        }
         listenerStore.start(dockerOwnership: self.dockerOwnership, projects: { [weak self] in self?.projects ?? [] }, ownedAttribution: { [weak self] in self?.ownedAttribution($0) }, dockerOverride: { [weak self] in self?.dockerOverridePath })
+    }
+
+    deinit {
+        dockerCheckTask?.cancel()
     }
 
     private func applySettings() {

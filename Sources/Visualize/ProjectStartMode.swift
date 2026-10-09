@@ -11,8 +11,8 @@ enum ProjectStartMode: String, CaseIterable, Identifiable {
         let available = ServiceMode.available(for: service)
         switch self {
         case .configured: return available.contains(remembered) ? remembered : available.first
-        case .local: return available.contains(.local) ? .local : available.first
-        case .docker: return available.first { $0 != .local } ?? available.first
+        case .local: return available.contains(.local) ? .local : nil
+        case .docker: return available.first { $0 != .local }
         }
     }
 }
