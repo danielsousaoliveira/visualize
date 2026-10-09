@@ -5,8 +5,6 @@ struct MenuBarPopover: View {
     @Environment(AppState.self) private var appState
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openURL) private var openURL
-    @State private var contentHeight: CGFloat = 60
-    @State private var footerHeight: CGFloat = 60
     @State private var screenHeight: CGFloat = NSScreen.main?.visibleFrame.height ?? 700
     @State private var displayed: [ProcessListenerGroup] = []
     @State private var hovered: String?
@@ -15,52 +13,17 @@ struct MenuBarPopover: View {
     @FocusState private var focused: String?
 
     private var rows: [ProcessListener] {
-        let ids = Set(appState.listenerStore.listeners.map(\.id))
-        return displayed.flatMap(\.listeners).filter { ids.contains($0.id) }
+        displayed.flatMap(\.listeners)
     }
 
     var body: some View {
-        VStack(spacing: 12) {
-            if rows.isEmpty {
-                Text("Nothing running").foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 60)
-            } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 12) {
-                            ForEach(displayed) { group in
-                                HStack {
-                                    Text(group.name).font(.headline).lineLimit(1)
-                                    Spacer()
-                                    if group.id != "other" && appState.widgetStopManagedAvailable(group) {
-                                        Button("Stop managed") {
-                                            Task { await appState.widgetStopManaged(group) }
-                                        }
-                                        .font(.caption)
-                                        .help("Stop managed services shown in this group")
-                                    }
-                                }
-                                ForEach(group.listeners) { listener in
-                                    if rows.contains(where: { $0.id == listener.id }) {
-                                        row(listener).id(listener.id)
-                                    } else {
-                                        Color.clear.frame(height: 48)
-                                    }
-                                }
-                            }
-                        }
-                        .fixedSize(horizontal: false, vertical: true)
-                        .background {
-                            GeometryReader { geometry in
-                                Color.clear
-                                    .task(id: geometry.size.height) { contentHeight = geometry.size.height }
-                            }
-                        }
-                    }
-                    .frame(height: min(contentHeight, max(60, screenHeight - footerHeight - 48)))
-                    .scrollDisabled(contentHeight <= max(60, screenHeight - footerHeight - 48))
-                    .onChange(of: selected) { if let selected { proxy.scrollTo(selected) } }
+        WidgetPopoverLayout(maxHeight: screenHeight - 48, spacing: 12) {
+            ScrollViewReader { proxy in
+                ViewThatFits(in: .vertical) {
+                    listenerList
+                    ScrollView { listenerList }
                 }
+                .onChange(of: selected) { if let selected { proxy.scrollTo(selected) } }
             }
             VStack(spacing: 12) {
                 if appState.dockerState.unavailableReason() != nil {
@@ -78,17 +41,15 @@ struct MenuBarPopover: View {
                         .help("Quit visualize")
                 }
             }
-            .background {
-                GeometryReader { geometry in
-                    Color.clear
-                        .task(id: geometry.size.height) { footerHeight = geometry.size.height }
-                }
-            }
         }
         .padding(12)
         .frame(width: 380)
         .fixedSize(horizontal: false, vertical: true)
         .background { WidgetScreenReader { screenHeight = $0 } }
+        .transaction { transaction in
+            transaction.animation = nil
+            transaction.disablesAnimations = true
+        }
         .onAppear { update() }
         .onChange(of: appState.listenerStore.listeners.map(\.id)) { update() }
         .onChange(of: appState.listenerStore.lastScan) { update() }
@@ -113,6 +74,34 @@ struct MenuBarPopover: View {
         } message: { listener in
             Text("Stop the service on port \(listener.port)? The external listening process receives SIGTERM.")
         }
+    }
+
+    private var listenerList: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if rows.isEmpty {
+                Text("Nothing running")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 60)
+            } else {
+                ForEach(displayed) { group in
+                    HStack {
+                        Text(group.name).font(.headline).lineLimit(1)
+                        Spacer()
+                        if group.id != "other" && appState.widgetStopManagedAvailable(group) {
+                            Button("Stop managed") {
+                                Task { await appState.widgetStopManaged(group) }
+                            }
+                            .font(.caption)
+                            .help("Stop managed services shown in this group")
+                        }
+                    }
+                    ForEach(group.listeners) { listener in
+                        row(listener).id(listener.id)
+                    }
+                }
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func row(_ listener: ProcessListener) -> some View {
@@ -161,8 +150,9 @@ struct MenuBarPopover: View {
         if let focused, !liveIDs.contains(focused) { self.focused = nil }
         if hovered != nil || appState.pendingWidgetStop != nil {
             let current = Dictionary(uniqueKeysWithValues: appState.listenerStore.listeners.map { ($0.id, $0) })
-            displayed = displayed.map { group in
-                ProcessListenerGroup(id: group.id, name: group.name, listeners: group.listeners.map { current[$0.id] ?? $0 })
+            displayed = displayed.compactMap { group in
+                let listeners = group.listeners.compactMap { current[$0.id] }
+                return listeners.isEmpty ? nil : ProcessListenerGroup(id: group.id, name: group.name, listeners: listeners)
             }
             return
         }

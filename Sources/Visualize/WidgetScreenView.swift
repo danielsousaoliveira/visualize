@@ -4,7 +4,7 @@ final class WidgetScreenView: NSView {
     var onHeight: ((CGFloat) -> Void)?
     private var chromeHeight: CGFloat?
     private var anchorTop: CGFloat?
-    private var resizeScheduled = false
+    private var resizing = false
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -20,32 +20,22 @@ final class WidgetScreenView: NSView {
 
     override func layout() {
         super.layout()
-        scheduleResize()
+        resizeWindow()
     }
 
     @objc private func opened(_ notification: Notification) {
         anchorTop = nil
-        scheduleResize()
+        resizeWindow()
     }
 
     @objc private func screenChanged(_ notification: Notification) {
         anchorTop = nil
         reportHeight()
-        scheduleResize()
-    }
-
-    private func scheduleResize() {
-        guard !resizeScheduled else { return }
-        resizeScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.resizeScheduled = false
-            self.resizeWindow()
-        }
+        resizeWindow()
     }
 
     private func resizeWindow() {
-        guard let window, window.isVisible, let screen = window.screen, bounds.height > 0 else { return }
+        guard !resizing, let window, window.isVisible, let screen = window.screen, bounds.height > 0 else { return }
         let frame = window.frame
         if chromeHeight == nil { chromeHeight = max(0, frame.height - bounds.height) }
         if anchorTop == nil { anchorTop = min(frame.maxY, screen.visibleFrame.maxY) }
@@ -53,7 +43,11 @@ final class WidgetScreenView: NSView {
         let top = min(anchorTop ?? frame.maxY, screen.visibleFrame.maxY)
         let next = NSRect(x: frame.minX, y: max(screen.visibleFrame.minY, top - height), width: frame.width, height: height)
         guard abs(next.height - frame.height) > 0.5 || abs(next.minY - frame.minY) > 0.5 else { return }
-        window.setFrame(next, display: true, animate: false)
+        resizing = true
+        defer { resizing = false }
+        window.disableScreenUpdatesUntilFlush()
+        window.setFrame(next, display: false, animate: false)
+        window.contentView?.layoutSubtreeIfNeeded()
         window.invalidateShadow()
     }
 
