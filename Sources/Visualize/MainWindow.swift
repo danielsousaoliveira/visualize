@@ -9,22 +9,26 @@ struct MainWindow: View {
     @State private var showingPorts = false
 
     var body: some View {
-        NavigationSplitView {
-            sidebar
-                .navigationSplitViewColumnWidth(min: 200, ideal: 240)
-                .toolbar {
-                    ToolbarItem {
-                        Button("Add project", systemImage: "plus", action: addProject).help("Add project")
+        VStack(spacing: 0) {
+            NavigationSplitView {
+                sidebar
+                    .navigationSplitViewColumnWidth(min: 200, ideal: 240)
+                    .toolbar {
+                        ToolbarItem {
+                            Button("Add project", systemImage: "plus", action: addProject).help("Add project")
+                        }
+                        ToolbarItem {
+                            Button("Listening ports", systemImage: "dot.radiowaves.left.and.right") { showingPorts = true }.help("Listening ports")
+                        }
                     }
-                    ToolbarItem {
-                        Button("Listening ports", systemImage: "dot.radiowaves.left.and.right") { showingPorts = true }.help("Listening ports")
-                    }
-                }
-        } detail: {
-            detail
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+            } detail: {
+                detail
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
             DockerStatusView()
+                .fixedSize(horizontal: false, vertical: true)
+                .layoutPriority(1)
         }
         .frame(minWidth: 720, minHeight: 440)
         .sheet(isPresented: $showingPorts) { ProcessListenersView().environment(appState).frame(minWidth: 780, minHeight: 420) }

@@ -115,7 +115,7 @@ struct ProjectDetailView: View {
                 } else {
                     ScrollViewReader { proxy in
                         ScrollView {
-                            LazyVStack(alignment: .leading, spacing: 24) {
+                            VStack(alignment: .leading, spacing: 24) {
                                 header(result)
                                 if let operation = appState.projectOperations[project.id], !operation.order.isEmpty {
                                     ProjectOperationView(project: project, operation: operation)
