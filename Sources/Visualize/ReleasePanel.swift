@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct ReleasePanel: View {
     @Environment(AppState.self) private var appState
@@ -63,7 +64,17 @@ struct ReleasePanel: View {
                 }
             }
             if let result = operation.result { Text(result).textSelection(.enabled) }
-            DisclosureGroup("Git command output (saved to project log)") {
+            DisclosureGroup("Git command output") {
+                HStack {
+                    Text("Saved in visualize’s app data").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Reveal log in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([operation.logURL])
+                    }
+                    .help("Reveal the release log in Application Support, outside the project folder")
+                    .disabled(!FileManager.default.fileExists(atPath: operation.logURL.path))
+                }
+                .padding(.top, 8)
                 ScrollView {
                     Text(operation.output).font(.caption.monospaced()).textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)

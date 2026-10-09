@@ -3,7 +3,6 @@ import SwiftUI
 struct ProjectDetailView: View {
     @Environment(AppState.self) private var appState
     @State private var showRelease = false
-    @State private var explainRelease = false
     @State private var showDatabaseConnections = false
     @State private var graphSelected = false
     @State private var logServiceID: String?
@@ -23,9 +22,11 @@ struct ProjectDetailView: View {
             if project.folderExists {
                 VStack(spacing: 0) {
                     content
-                    if let error {
+                    if let error, graphSelected || project.lastResult == nil {
                         Divider()
-                        errorBanner(error)
+                        ScrollView {
+                            errorBanner(error)
+                        }.frame(maxHeight: 160)
                     }
                 }
             } else {
@@ -42,14 +43,8 @@ struct ProjectDetailView: View {
         .toolbar {
             Button("Connect", systemImage: "externaldrive") { showDatabaseConnections = true }.help("Manage database connections")
                 .disabled(!project.folderExists)
-            Button("Push to production", systemImage: "arrow.up.circle") { explainRelease = true }.help("Review a production release")
+            Button("Push to production", systemImage: "arrow.up.circle") { showRelease = true }.help("Review a production release")
                 .disabled(!project.folderExists)
-        }
-        .alert("Review a production release?", isPresented: $explainRelease) {
-            Button("Continue to review") { showRelease = true }.help("Open the release review")
-            Button("Cancel", role: .cancel) {}.help("Cancel the release review")
-        } message: {
-            Text("This opens the release review for \(project.name). Fetch and review will contact the selected Git remote and compare main or master with production or prod. You can change those branches and the remote before fetching. After review, a separate confirmation will push the reviewed main commit to the production branch. Production-only commits may be replaced if you explicitly confirm. Working files stay in place. Any deployment triggered by that remote branch may run after the push.")
         }
         .sheet(isPresented: $showDatabaseConnections) {
             DatabaseConnectionsView(project: project)
@@ -150,6 +145,7 @@ struct ProjectDetailView: View {
                                         ComposeFileCard(file: file, result: result)
                                     }
                                 }
+                                if let error { errorBanner(error) }
                                 let messages = result.warnings + (appState.projectOperations[project.id]?.warnings ?? [])
                                 if !messages.isEmpty {
                                     DisclosureGroup("Warnings (\(messages.count))") {
@@ -270,9 +266,15 @@ struct ProjectDetailView: View {
     private func warnings(_ messages: [String]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(messages.enumerated()), id: \.offset) { _, message in
-                Label(message, systemImage: "exclamationmark.triangle")
-                    .font(.callout)
-                    .textSelection(.enabled)
+                Label {
+                    Text(message)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle")
+                }
+                .font(.callout)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -283,6 +285,7 @@ struct ProjectDetailView: View {
         Label {
             Text(message)
                 .font(.callout.monospaced())
+                .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } icon: {
