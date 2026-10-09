@@ -15,7 +15,7 @@ function scopedReader(reader: ProjectReader, directory: string): ProjectReader {
   };
 }
 
-function mergeScan(result: ScanResult, nested: ScanResult, directory: string): void {
+function mergeScan(result: ScanResult, nested: ScanResult, directory: string, composeFileRead?: string): void {
   const path = (value: string) => posix.join(directory, value);
   const ids = new Map<string, string>();
   const id = (value: string) => {
@@ -88,7 +88,7 @@ function mergeScan(result: ScanResult, nested: ScanResult, directory: string): v
   if (newFiles.length) {
     result.composeServices.push(...nested.composeServices.map((service) => ({
       ...service,
-      composeFile: service.composeFile ? path(service.composeFile) : newFiles[0],
+      composeFile: service.composeFile ? path(service.composeFile) : composeFileRead ? path(composeFileRead) : newFiles[0],
       buildContext: service.buildContext && !service.buildContext.includes("://") && !posix.isAbsolute(service.buildContext) ? path(service.buildContext) : service.buildContext,
     })));
   }
@@ -126,7 +126,7 @@ export async function scanFolder(path: string): Promise<ScanResult> {
       if (new Set([...result.composeFiles, ...nested.composeFiles.map((file) => posix.join(directory, file))]).size > result.composeFiles.length) {
         result.composeServices = result.composeServices.map((service) => ({ ...service, composeFile: service.composeFile ?? info.composeFileRead }));
       }
-      mergeScan(result, nested, directory);
+      mergeScan(result, nested, directory, nestedInfo.composeFileRead);
     } catch (error) {
       result.warnings.push(`${directory}: ${error instanceof Error ? error.message : "Could not scan this folder"}`);
     }

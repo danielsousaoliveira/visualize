@@ -5,6 +5,7 @@ struct MainWindow: View {
     static let id = "main"
 
     @Environment(AppState.self) private var appState
+    @Environment(\.openWindow) private var openWindow
     @State private var pendingRemoval: Project?
     @State private var showingPorts = false
     @State private var footerHeight: CGFloat = 34
@@ -36,6 +37,7 @@ struct MainWindow: View {
                 }
         }
         .frame(minWidth: 720, minHeight: 440)
+        .onAppear { AppDelegate.openWindow = openWindow }
         .sheet(isPresented: $showingPorts) { ProcessListenersView().environment(appState).frame(minWidth: 780, minHeight: 420) }
         .sheet(item: Binding(get: { appState.portConflict }, set: { appState.portConflict = $0 })) { conflict in
             PortConflictSheet(conflict: conflict)
