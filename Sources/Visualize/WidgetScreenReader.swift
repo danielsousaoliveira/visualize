@@ -12,5 +12,6 @@ struct WidgetScreenReader: NSViewRepresentable {
 
     func updateNSView(_ view: WidgetScreenView, context: Context) {
         view.onHeight = onHeight
+        view.needsLayout = true
     }
 }

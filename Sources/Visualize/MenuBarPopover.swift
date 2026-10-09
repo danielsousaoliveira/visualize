@@ -155,6 +155,10 @@ struct MenuBarPopover: View {
     }
 
     private func update() {
+        let liveIDs = Set(appState.listenerStore.listeners.map(\.id))
+        if let hovered, !liveIDs.contains(hovered) { self.hovered = nil }
+        if let selected, !liveIDs.contains(selected) { self.selected = nil }
+        if let focused, !liveIDs.contains(focused) { self.focused = nil }
         if hovered != nil || appState.pendingWidgetStop != nil {
             let current = Dictionary(uniqueKeysWithValues: appState.listenerStore.listeners.map { ($0.id, $0) })
             displayed = displayed.map { group in
