@@ -18,7 +18,9 @@ struct TechnologyIcon: View {
         "aspnet": "dotnet", "nuxtjs": "nuxt", "react-native": "react"
     ]
     private static let images: [String: NSImage] = {
-        guard let directory = Bundle.module.url(forResource: "Icons", withExtension: nil),
+        let resources = Bundle.main.url(forResource: "visualize_visualize", withExtension: "bundle")
+            .flatMap { Bundle(url: $0) } ?? Bundle.module
+        guard let directory = resources.url(forResource: "Icons", withExtension: nil),
               let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return [:] }
         return Dictionary(uniqueKeysWithValues: files.filter { $0.pathExtension == "pdf" }.compactMap { url in
             guard let image = NSImage(contentsOf: url) else { return nil }

@@ -84,7 +84,6 @@ struct ServiceCard: View {
                                     .textSelection(.enabled)
                             }
                             .help("Run in \(command.workingDirectory) • \(command.source)")
-                            .accessibilityLabel("Dev command")
                         } else {
                             Text("No dev command detected").font(.callout).foregroundStyle(.secondary)
                         }

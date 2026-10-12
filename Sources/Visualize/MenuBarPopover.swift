@@ -25,7 +25,7 @@ struct MenuBarPopover: View {
             HStack {
                 Text("Running services").font(.headline)
                 Spacer()
-                Text("\(rows.count)").font(.callout).foregroundStyle(.secondary).monospacedDigit()
+                Text("\(appState.listenerStore.listeners.count)").font(.callout).foregroundStyle(.secondary).monospacedDigit()
             }.padding(.horizontal, 4)
             ScrollView { listenerList }
                 .frame(height: min(max(72, CGFloat(rows.count * 76 + displayed.count * 40)), max(72, screenHeight - 190)))
