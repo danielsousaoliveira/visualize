@@ -8,24 +8,47 @@ struct PortAttribution {
     static func resolve(_ listener: ProcessListener, projects: [Project], dockerOwnership: String? = nil) -> ProcessListener {
         var result = listener
         let directory = listener.workingDirectory.map { Project.canonicalPath(of: URL(filePath: $0)) }
+        let repository = directory.flatMap { RepositoryLocation.find(directory: $0) }
+        let attributionDirectory = directory.map { path in
+            guard let repository else { return path }
+            return repository.originalRoot + path.dropFirst(repository.root.count)
+        }
         let container = listener.container
         let owned = container?.isOwned(by: dockerOwnership) == true
+        let directProject = directory.flatMap { path in
+            projects.filter { contains($0.folderPath, path) }.max { $0.folderPath.count < $1.folderPath.count }
+        }
+        let savedWorktree = repository.flatMap { repository in
+            directProject.flatMap { contains(repository.root, $0.folderPath) ? $0 : nil }
+        }
         let project = (owned ? projects.first { $0.id.uuidString == container?.labels["visualize.library"] } : nil)
-            ?? (owned ? nil : directory.flatMap { path in projects.filter { contains($0.folderPath, path) }.max { $0.folderPath.count < $1.folderPath.count } })
+            ?? (owned ? nil : savedWorktree)
+            ?? (owned ? nil : attributionDirectory.flatMap { path in projects.filter { contains($0.folderPath, path) }.max { $0.folderPath.count < $1.folderPath.count } })
+            ?? (owned ? nil : directProject)
         result.libraryProjectID = project?.id
         result.startedByVisualize = owned
         result.projectName = project?.lastResult?.project.name ?? project?.name ?? container?.visualizeProject ?? container?.composeProject ?? listener.projectName
-        result.gitBranch = project?.lastResult?.project.gitBranch
+        result.gitBranch = repository?.branch ?? listener.gitBranch ?? project?.lastResult?.project.gitBranch
+        result.repositoryRoot = repository?.root
         let services = project?.lastResult?.services ?? []
         if let container {
             let key = owned ? container.visualizeService : container.composeService
-            result.serviceName = services.first { $0.id == key || $0.runModes.compose.serviceName == key }?.name
-                ?? key
-        } else if let project, let directory {
-            result.serviceName = services.filter { service in
+            let candidates = services.filter { $0.id == key || $0.runModes.compose.serviceName == key }
+            let matched = candidates.first { service in
+                guard let attributionDirectory, let project else { return false }
+                let composeRoot = service.runModes.compose.composeFile.map { project.folderURL.appending(path: $0).deletingLastPathComponent().path }
+                return composeRoot == attributionDirectory
+            } ?? candidates.first
+            result.serviceID = matched?.id
+            result.serviceName = matched?.name ?? key
+        } else if let project, let directory = savedWorktree == nil ? attributionDirectory : directory {
+            let infrastructure = project.lastResult?.infra.first { $0.providedBy == nil && $0.port == listener.port }
+            let matched = services.filter { service in
                 let root = serviceRoot(service, project: project)
                 return contains(project.folderPath, root) && contains(root, directory)
-            }.max { serviceRoot($0, project: project).count < serviceRoot($1, project: project).count }?.name
+            }.max { serviceRoot($0, project: project).count < serviceRoot($1, project: project).count }
+            result.serviceID = infrastructure == nil ? matched?.id : nil
+            result.serviceName = infrastructure?.kind.rawValue ?? matched?.name ?? repository.map { URL(filePath: $0.originalRoot).lastPathComponent }
         }
         return result
     }
@@ -38,12 +61,16 @@ struct PortAttribution {
     static func externalName(directory: String?) -> String? {
         guard let directory, !directory.isEmpty else { return nil }
         var folder = URL(filePath: directory)
+        let repository = RepositoryLocation.find(directory: directory)
         while folder.path != "/" {
             for manifest in ["package.json", "composer.json"] {
                 let url = folder.appending(path: manifest)
                 if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 1_048_576,
                    let data = try? Data(contentsOf: url), let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let name = object["name"] as? String, !name.isEmpty { return name }
+            }
+            if folder.path == repository?.root {
+                return repository.map { URL(filePath: $0.originalRoot).lastPathComponent }
             }
             folder.deleteLastPathComponent()
         }

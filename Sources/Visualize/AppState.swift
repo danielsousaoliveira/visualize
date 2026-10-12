@@ -218,7 +218,13 @@ final class AppState {
                 result.libraryProjectID = project.id
                 result.projectName = project.lastResult?.project.name ?? project.name
                 result.serviceName = service.name
+                result.serviceID = service.id
                 result.startedByVisualize = true
+                if let directory = listener.workingDirectory,
+                   let repository = RepositoryLocation.find(directory: directory) {
+                    result.repositoryRoot = repository.root
+                    result.gitBranch = repository.branch
+                }
                 return result
             }
         }
@@ -418,7 +424,7 @@ final class AppState {
     }
 
     private func applySettings() {
-        listenerStore.configure(interval: settings.scanInterval, lower: settings.lowerPort, upper: settings.upperPort)
+        listenerStore.configure(interval: settings.scanInterval, lower: settings.lowerPort, upper: settings.upperPort, showCodingAgents: settings.showCodingAgents)
         for log in serviceLogs.values { log.writer.setRetention(megabytes: settings.logRetentionMB) }
         Task { await checkDocker() }
     }

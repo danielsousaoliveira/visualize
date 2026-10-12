@@ -10,6 +10,7 @@ final class AppSettings {
     private(set) var upperPort: Int
     private(set) var logRetentionMB: Int
     private(set) var dockerPath: String
+    private(set) var showCodingAgents: Bool
     private(set) var launchAtLogin = false
     var loginError: String?
     var rangeError: String?
@@ -29,6 +30,7 @@ final class AppSettings {
         let retention = defaults.integer(forKey: "logRetentionMB")
         logRetentionMB = [10, 40, 100].contains(retention) ? retention : 40
         dockerPath = defaults.string(forKey: "dockerOverridePath") ?? ""
+        showCodingAgents = defaults.bool(forKey: "showCodingAgents")
         refreshLoginStatus()
     }
 
@@ -54,6 +56,11 @@ final class AppSettings {
     func setInterval(_ value: Int) {
         guard [1, 2, 5, 10].contains(value) else { return }
         scanInterval = value
+        save()
+    }
+
+    func setShowCodingAgents(_ value: Bool) {
+        showCodingAgents = value
         save()
     }
 
@@ -93,6 +100,7 @@ final class AppSettings {
         upperPort = 65535
         logRetentionMB = 40
         dockerPath = ""
+        showCodingAgents = false
         rangeError = nil
         dockerError = nil
         save()
@@ -100,6 +108,7 @@ final class AppSettings {
 
     private func save() {
         defaults.set(scanInterval, forKey: "scanInterval")
+        defaults.set(showCodingAgents, forKey: "showCodingAgents")
         defaults.set(lowerPort, forKey: "lowerPort")
         defaults.set(upperPort, forKey: "upperPort")
         defaults.set(logRetentionMB, forKey: "logRetentionMB")

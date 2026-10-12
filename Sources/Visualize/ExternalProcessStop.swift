@@ -11,6 +11,9 @@ struct ExternalProcessStop {
     }
 
     static func stop(_ listener: ProcessListener) throws {
+        guard !ListenerVisibility.isDesktopOrSystem(listener) else {
+            throw NSError(domain: "Desktop and system processes cannot be stopped from visualize", code: 1)
+        }
         guard let expected = listener.identity, identity(listener.pid) == expected,
               ProcessListenerMonitor().scan(ports: listener.port...listener.port, projects: []).contains(where: { $0.identity == expected }),
               identity(listener.pid) == expected else {

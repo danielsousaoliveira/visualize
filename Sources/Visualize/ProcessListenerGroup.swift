@@ -9,6 +9,7 @@ struct ProcessListenerGroup: Identifiable {
         Dictionary(grouping: listeners) { listener in
             if let id = listener.libraryProjectID { return "library:\(id.uuidString)" }
             if listener.startedByVisualize { return "visualize:\(listener.projectName ?? "Unknown project")" }
+            if let root = listener.repositoryRoot { return "repository:\(root)" }
             return "other"
         }.map { key, entries in
             Self(id: key, name: entries.first?.attributionGroup ?? "Other", listeners: entries)
