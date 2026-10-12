@@ -118,7 +118,7 @@ struct ProjectDetailView: View {
                 } else {
                     ScrollViewReader { proxy in
                         ScrollView {
-                            VStack(alignment: .leading, spacing: 24) {
+                            VStack(alignment: .leading, spacing: 12) {
                                 header(result)
                                 if let operation = appState.projectOperations[project.id], !operation.order.isEmpty {
                                     ProjectOperationView(project: project, operation: operation)
@@ -168,6 +168,8 @@ struct ProjectDetailView: View {
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(24)
+                            .frame(maxWidth: 1040, alignment: .leading)
+                            .frame(maxWidth: .infinity, alignment: .center)
                         }
                         .onChange(of: logServiceID, initial: true) { _, selection in
                             if selection != nil { proxy.scrollTo("service-logs", anchor: .top) }
@@ -196,8 +198,9 @@ struct ProjectDetailView: View {
     }
 
     private func header(_ result: ScanResult) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
+                TechnologyIcon(technology: result.services.compactMap(\.stackId).first, size: 24)
                 Text(project.name).font(.title.bold()).lineLimit(1)
                 Spacer()
                 if isScanning { ProgressView().controlSize(.small) }
@@ -230,10 +233,11 @@ struct ProjectDetailView: View {
                     .disabled(isScanning || appState.projectOperations[project.id]?.busy == true)
             }
             Text(project.folderPath)
-                .font(.callout.monospaced())
+                .font(.callout)
                 .foregroundStyle(.secondary)
+                .lineLimit(1).truncationMode(.middle)
                 .textSelection(.enabled)
-            HStack(spacing: 20) {
+            HStack(spacing: 16) {
                 Label(result.project.gitBranch ?? "Branches are shown on each running checkout", systemImage: "arrow.triangle.branch")
                 Text("Type: \(result.project.type.rawValue)")
             }
@@ -242,7 +246,7 @@ struct ProjectDetailView: View {
             if error != nil {
                 Text("Showing the last successful scan").font(.callout).foregroundStyle(.secondary)
             }
-        }
+        }.controlSize(.small).tint(.primary).padding(.bottom, 6)
     }
 
     private var hasManagedServices: Bool {
@@ -269,9 +273,9 @@ struct ProjectDetailView: View {
 
     private func sectionTitle(_ title: String, count: Int) -> some View {
         HStack {
-            Text(title).font(.title2.weight(.semibold))
-            Text("\(count)").font(.callout).foregroundStyle(.secondary)
-        }
+            Text(title).font(.headline)
+            Text("\(count)").font(.caption).foregroundStyle(.secondary)
+        }.padding(.top, 16).padding(.horizontal, 2)
     }
 
     private func warnings(_ messages: [String]) -> some View {

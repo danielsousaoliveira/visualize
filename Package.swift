@@ -9,7 +9,8 @@ let package = Package(
         .executableTarget(
             name: "visualize",
             dependencies: ["DatabaseDriver"],
-            path: "Sources/Visualize"
+            path: "Sources/Visualize",
+            resources: [.copy("Icons")]
         ),
         .testTarget(
             name: "VisualizeTests",

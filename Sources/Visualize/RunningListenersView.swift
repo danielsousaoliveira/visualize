@@ -4,17 +4,19 @@ struct RunningListenersView: View {
     @Environment(AppState.self) private var appState
     @State private var pendingStop: ProcessListener?
     @State private var busy: Set<String> = []
+    @State private var expanded: Set<String> = []
     let listeners: [ProcessListener]
+    var compact = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Running instances").font(.callout.weight(.semibold))
             ForEach(listeners) { listener in
-                VStack(alignment: .leading, spacing: 5) {
+                InsetSurface(inset: !compact) {
+                VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Label(listener.container == nil ? "Process · PID \(listener.pid)" : "Container · \(listener.container?.name ?? listener.name)", systemImage: "circle.fill")
-                            .foregroundStyle(.green)
-                        if let url = URL(string: "http://localhost:\(listener.port)") { Link(String(listener.port), destination: url) }
+                        Circle().fill(.green).frame(width: 6, height: 6)
+                        Text(listener.serviceName ?? listener.container?.name ?? listener.name).fontWeight(.medium).lineLimit(1).truncationMode(.middle).layoutPriority(1)
+                        if let url = URL(string: "http://localhost:\(listener.port)") { Link("localhost:\(listener.port)", destination: url).foregroundStyle(.primary).monospacedDigit() }
                         Spacer()
                         Button("Stop") {
                             if !listener.startedByVisualize && listener.container == nil { pendingStop = listener }
@@ -24,10 +26,15 @@ struct RunningListenersView: View {
                             .disabled(!appState.widgetRestartAvailable(listener))
                             .help(appState.widgetRestartAvailable(listener) ? "Restart this instance" : "Only instances started by visualize can be restarted")
                     }.disabled(busy.contains(listener.id))
+                    DisclosureGroup(isExpanded: Binding(get: { expanded.contains(listener.id) }, set: { if $0 { expanded.insert(listener.id) } else { expanded.remove(listener.id) } })) {
+                    Text("PID \(listener.pid)").monospacedDigit().foregroundStyle(.secondary)
                     if let branch = listener.gitBranch { Label(branch, systemImage: "arrow.triangle.branch") }
                     if let directory = listener.workingDirectory { Text(directory).textSelection(.enabled) }
-                    Text(listener.startedByVisualize ? "Started by visualize" : "Started externally").foregroundStyle(.secondary)
-                }.font(.callout)
+                    } label: {
+                        Text(listener.startedByVisualize ? "Started by visualize" : "Started externally").foregroundStyle(.secondary)
+                    }.tint(.primary)
+                }.font(.callout).controlSize(.small)
+                }
             }
             if let error = appState.portLookupError ?? appState.listenerStore.actionError { Text(error).foregroundStyle(.red) }
         }

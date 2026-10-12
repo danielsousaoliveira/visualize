@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-12T13:11:41Z",
+  "title": "Design System: visualize",
+  "extensions": {
+    "nativePlatform": {
+      "platform": "macOS",
+      "minimumVersion": "14",
+      "framework": "SwiftUI",
+      "units": "points",
+      "authority": "Native Apple System Settings aesthetic; existing neutral palette",
+      "colors": {
+        "surface": "Color(nsColor: .controlBackgroundColor)",
+        "primary": "Color.primary",
+        "secondary": "Color.secondary",
+        "tertiary": ".tertiary",
+        "running": "Color.green",
+        "warning": "Color.orange",
+        "failure": "Color.red",
+        "stopped": "Color.gray"
+      },
+      "typography": {
+        "projectTitle": ".title.bold()",
+        "sectionAndServiceTitle": ".headline",
+        "bodyAndControl": ".callout",
+        "metadata": ".caption",
+        "chevron": ".caption2",
+        "disclosureLabel": ".callout.weight(.medium)",
+        "command": ".callout.monospaced()",
+        "numericAlignment": ".monospacedDigit()"
+      },
+      "components": {
+        "InsetSurface": {
+          "source": "Sources/Visualize/InsetSurface.swift",
+          "radiusRef": "rounded.inset-surface",
+          "paddingRef": "spacing.surface-padding",
+          "background": "Color(nsColor: .controlBackgroundColor)",
+          "compact": "inset: false removes padding and background"
+        },
+        "ProjectDetailView": {
+          "source": "Sources/Visualize/ProjectDetailView.swift",
+          "maxWidth": 1040,
+          "paddingRef": "spacing.detail-padding",
+          "groupGapRef": "spacing.section-gap",
+          "sectionHeadingPadding": { "top": 16, "horizontal": 2 }
+        },
+        "MenuBarPopover": {
+          "source": "Sources/Visualize/MenuBarPopover.swift",
+          "width": 400,
+          "paddingRef": "spacing.widget-padding",
+          "rowPadding": { "horizontal": 10, "vertical": 8 },
+          "hoverBackground": "Color.primary.opacity(0.05)",
+          "hoverRadiusRef": "rounded.widget-hover",
+          "persistentSelection": false,
+          "identityAction": "Open corresponding saved project; unmatched listener opens main window",
+          "portAction": "Open localhost port"
+        },
+        "GraphNodeCard": {
+          "source": "Sources/Visualize/GraphNodeCard.swift",
+          "size": { "width": 216, "height": 96 },
+          "padding": 12,
+          "radiusRef": "rounded.inset-surface",
+          "background": "Color(nsColor: .controlBackgroundColor)",
+          "selectedStroke": "Color.primary.opacity(0.7), lineWidth: 2",
+          "defaultStroke": "Color.secondary.opacity(0.2), lineWidth: 1"
+        },
+        "TechnologyIcon": {
+          "source": "Sources/Visualize/TechnologyIcon.swift",
+          "assetSource": "Simple Icons 16.0.0",
+          "format": "Bundled PDF template assets; original SVG retained",
+          "foreground": "Color(nsColor: .labelColor).opacity(0.85)",
+          "sizes": { "graphAndWidgetGroup": 16, "widgetRow": 18, "default": 18, "projectHeader": 24 },
+          "fallback": "SF Symbol circle.hexagongrid, matching MenuBarLabel; light weight",
+          "accessibility": "Hidden; adjacent text conveys identity"
+        },
+        "NativeControls": {
+          "types": ["Button", "Picker with .menu style", "DisclosureGroup", "NavigationSplitView", "List"],
+          "serviceAndHeaderControlSize": ".small",
+          "serviceHeaderAndWidgetTint": ".primary",
+          "preserve": ["sidebar", "toolbar", "Docker footer", "disabled states", "help text", "confirmations"]
+        }
+      }
+    },
+    "evidence": {
+      "method": "SwiftUI source and diff review",
+      "visualVerification": "Blocked by denied Computer Use access",
+      "interactionVerification": "Blocked by denied Computer Use access",
+      "visualPassClaimed": false,
+      "scope": "Existing project detail, service and infrastructure surfaces, graph cards, and menu bar popover"
+    }
+  },
+  "components": [],
+  "narrative": {
+    "northStar": "Apple System Settings",
+    "overview": "Use familiar macOS controls, quiet neutral surfaces, and a clear hierarchy of project, service, and supporting details. Keep the established sidebar, toolbar, and Docker footer. This document covers the existing project detail, service graph cards, and menu bar popover; it does not prescribe new product surfaces.",
+    "keyCharacteristics": [
+      "Native SwiftUI controls and semantic system typography.",
+      "Neutral adaptive surfaces with monochrome technology icons.",
+      "Compact summaries with supporting details behind disclosures."
+    ],
+    "rules": [{ "name": "The Adaptive Neutral Rule", "body": "Preserve native semantic colors across light and dark appearances; do not substitute a fixed gray palette or colored technology logos.", "section": "colors" }],
+    "dos": [
+      "Do use native semantic colors and typography.",
+      "Do preserve the sidebar, footer, and toolbar structure.",
+      "Do keep status and immediate actions visible while disclosing supporting details.",
+      "Do keep technology icons monochrome and use the visualize menu-bar symbol fallback."
+    ],
+    "donts": [
+      "Don't add persistent widget row selection.",
+      "Don't replace native components with web-style approximations or decorative brand colors.",
+      "Don't claim a visual or interaction pass from source review alone."
+    ]
+  }
+}

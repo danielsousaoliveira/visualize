@@ -15,9 +15,10 @@ struct ComposeFileCard: View {
     }
 
     var body: some View {
-        GroupBox {
+        InsetSurface {
             VStack(alignment: .leading, spacing: 12) {
-                Text(file).font(.headline.monospaced())
+                DisclosureGroup {
+                VStack(alignment: .leading, spacing: 14) {
                 if services.isEmpty {
                     Text("No scanned services associated with this file").foregroundStyle(.secondary)
                 }
@@ -37,10 +38,14 @@ struct ComposeFileCard: View {
                     }
                     .font(.callout)
                 }
+                }
+                } label: {
+                    Label(file, systemImage: "shippingbox").font(.callout.weight(.medium))
+                }.tint(.primary)
             }
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(8)
+
         }
     }
 }

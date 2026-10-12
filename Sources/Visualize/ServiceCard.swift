@@ -4,6 +4,7 @@ struct ServiceCard: View {
     @Environment(AppState.self) private var appState
 
     let project: Project
+    @State private var expanded = false
     @State private var pendingRecipe: RunRecipe?
     @State private var showConfirmation = false
     @State private var confirmingRestart = false
@@ -19,10 +20,14 @@ struct ServiceCard: View {
     }
 
     var body: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(service.name).font(.headline)
+        InsetSurface {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    TechnologyIcon(technology: service.stackId ?? composeImage?.components(separatedBy: ":").first)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(service.name).font(.headline)
+                        Text(service.rootDirectory).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    }
                     Spacer()
                     if let run = appState.serviceRuns[appState.runKey(project: project, service: service)], run.active || run.docker != nil {
                         if run.active {
@@ -35,14 +40,15 @@ struct ServiceCard: View {
                         }.help("Restart").disabled(run.stopping || run.busy || (run.pid == nil && run.docker == nil) || (run.docker != nil && appState.dockerReason(project: project, service: service) != nil))
                     }
                     ServicePlayButton(project: project, service: service)
-                    Text(service.rootDirectory).font(.callout.monospaced()).foregroundStyle(.secondary)
                 }
                 ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 20) { metadata }
+                    HStack(spacing: 16) { metadata }
                     VStack(alignment: .leading, spacing: 6) { metadata }
                 }
+                .font(.callout).foregroundStyle(.secondary)
                 let run = appState.serviceRuns[appState.runKey(project: project, service: service)]
                 HStack {
+                    Circle().fill(run?.active == true || !listeners.isEmpty ? Color.green : Color.secondary.opacity(0.4)).frame(width: 6, height: 6)
                     Text(run?.active == true ? run?.status ?? "Running" : listeners.isEmpty ? run?.status ?? "Stopped" : "Running externally")
                     if let port = service.port, listeners.isEmpty {
                         Label(run?.docker != nil && run?.active == true ? "Port \(port) published" : run?.portReady == true ? "Port \(port) listening" : "Port \(port) waiting", systemImage: run?.portReady == true ? "circle.fill" : "circle")
@@ -65,55 +71,64 @@ struct ServiceCard: View {
                         showConfirmation = true
                     }.help("Restart with new command").disabled(run.stopping || run.busy || (run.pid == nil && run.docker == nil))
                 }
-                if let command = service.devCommand {
-                    ScrollView(.horizontal) {
-                        Text(command.argv.map(shellArgument).joined(separator: " "))
-                            .font(.callout.monospaced())
-                            .fixedSize()
-                            .textSelection(.enabled)
-                    }
-                    .help("Run in \(command.workingDirectory) • \(command.source)")
-                    .accessibilityLabel("Dev command")
-                } else {
-                    Text("No dev command detected").font(.callout).foregroundStyle(.secondary)
+                if !missing.isEmpty {
+                    Label("\(missing.count) missing environment variables", systemImage: "exclamationmark.triangle").font(.callout).foregroundStyle(.orange)
                 }
-                Picker("Run mode", selection: Binding(
-                    get: { appState.mode(project: project, service: service) },
-                    set: { appState.setMode($0, project: project, service: service) }
-                )) {
-                    ForEach(ServiceMode.available(for: service)) { mode in
-                        Text(mode.rawValue).tag(mode)
-                    }
-                }
-                .pickerStyle(.menu)
-                .fixedSize()
-                .help("Choose how to run this service")
-                .disabled(run?.active == true || run?.busy == true || run?.stopping == true)
-                if !listeners.isEmpty {
-                    Divider()
-                    RunningListenersView(listeners: listeners)
-                }
-                if environment == nil {
-                    Text("Env status unavailable — rescan to check").font(.callout).foregroundStyle(.secondary)
-                } else if missing.isEmpty {
-                    Text("\(setCount) set, 0 missing").font(.callout).foregroundStyle(.secondary)
-                } else {
-                    DisclosureGroup("\(setCount) set, \(missing.count) missing") {
-                        VStack(alignment: .leading, spacing: 4) {
-                            ForEach(missing, id: \.name) { variable in
-                                Text(variable.name).font(.callout.monospaced()).textSelection(.enabled)
+                DisclosureGroup("Details", isExpanded: $expanded) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        if let command = service.devCommand {
+                            ScrollView(.horizontal) {
+                                Text(command.argv.map(shellArgument).joined(separator: " "))
+                                    .font(.callout.monospaced())
+                                    .fixedSize()
+                                    .textSelection(.enabled)
+                            }
+                            .help("Run in \(command.workingDirectory) • \(command.source)")
+                            .accessibilityLabel("Dev command")
+                        } else {
+                            Text("No dev command detected").font(.callout).foregroundStyle(.secondary)
+                        }
+                        Picker("Run mode", selection: Binding(
+                            get: { appState.mode(project: project, service: service) },
+                            set: { appState.setMode($0, project: project, service: service) }
+                        )) {
+                            ForEach(ServiceMode.available(for: service)) { mode in
+                                Text(mode.rawValue).tag(mode)
                             }
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 6)
-                    }
-                    .font(.callout)
-                    .help("Show missing environment variable names")
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .help("Choose how to run this service")
+                        .disabled(run?.active == true || run?.busy == true || run?.stopping == true)
+
+                        if environment == nil {
+                            Text("Env status unavailable — rescan to check").font(.callout).foregroundStyle(.secondary)
+                        } else if missing.isEmpty {
+                            Text("\(setCount) set, 0 missing").font(.callout).foregroundStyle(.secondary)
+                        } else {
+                            DisclosureGroup("\(setCount) set, \(missing.count) missing") {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    ForEach(missing, id: \.name) { variable in
+                                        Text(variable.name).font(.callout.monospaced()).textSelection(.enabled)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.top, 6)
+                            }
+                            .font(.callout)
+                            .help("Show missing environment variable names")
+                        }
+                    }.padding(.top, 8)
+                }.font(.callout).tint(.primary)
+                if !listeners.isEmpty {
+                    Divider()
+                    RunningListenersView(listeners: listeners, compact: true)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(8)
         }
+        .controlSize(.small)
+        .tint(.primary)
         .disabled(appState.projectOperations[project.id]?.busy == true)
         .sheet(isPresented: $showConfirmation) {
             VStack(alignment: .leading, spacing: 16) {
@@ -145,8 +160,8 @@ struct ServiceCard: View {
         if let stack = service.stackId { Text([stack, service.category].compactMap { $0 }.joined(separator: " • ")) }
         else if let image = composeImage { Text("Image: \(image)") }
         else { Text(service.runModes.compose.available ? "Compose service" : "Application stack not detected") }
-        if let manager = service.packageManager { Text("Package manager: \(manager)") }
-        Text(service.port.map { "Port: \(String($0))" } ?? "Port: Not detected")
+        if let manager = service.packageManager { Text(manager) }
+        Text(service.port.map { "Port \(String($0))" } ?? "No port detected")
     }
 
     private var composeImage: String? {

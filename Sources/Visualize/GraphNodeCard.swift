@@ -23,7 +23,7 @@ struct GraphNodeCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Image(systemName: node.infraKinds.isEmpty ? "shippingbox" : "externaldrive")
+                TechnologyIcon(technology: service?.stackId ?? node.infraKinds.first?.rawValue, size: 16)
                 Text(node.name).font(.headline).lineLimit(1)
                 Spacer(minLength: 2)
                 Circle().fill(status).frame(width: 9, height: 9)
@@ -52,7 +52,7 @@ struct GraphNodeCard: View {
             }
         }
         .padding(12).frame(width: Self.size.width, height: Self.size.height)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(selected ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: selected ? 2 : 1))
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(selected ? Color.primary.opacity(0.7) : Color.secondary.opacity(0.2), lineWidth: selected ? 2 : 1))
     }
 }
