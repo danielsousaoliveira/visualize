@@ -3,6 +3,14 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 app_name="visualize"
+configuration="release"
+case "${1:-}" in
+    --debug)
+        configuration="debug"
+        ;;
+    "") ;;
+    *) echo "Usage: $0 [--debug]" >&2; exit 1 ;;
+esac
 helper_name="visualize-scan"
 app_path="$repo_root/build/$app_name.app"
 helper_build="$repo_root/build/helper"
@@ -35,8 +43,8 @@ build_helper() {
 
 cd "$repo_root"
 source "$repo_root/scripts/postgres-build-flags.sh"
-swift build -c release --product "$app_name" "${postgres_flags[@]}"
-binary_path="$(swift build -c release --show-bin-path)/$app_name"
+swift build -c "$configuration" --product visualize "${postgres_flags[@]}"
+binary_path="$(swift build -c "$configuration" --show-bin-path)/visualize"
 build_helper
 
 rm -rf "$app_path"
@@ -44,6 +52,7 @@ mkdir -p "$app_path/Contents/MacOS" "$app_path/Contents/Helpers" "$app_path/Cont
 cp "$binary_path" "$app_path/Contents/MacOS/$app_name"
 cp "$helper_build/$helper_name" "$app_path/Contents/Helpers/$helper_name"
 cp "$repo_root/Resources/Info.plist" "$app_path/Contents/Info.plist"
+cp "$repo_root/Resources/AppIcon.icns" "$app_path/Contents/Resources/AppIcon.icns"
 cp "$postgres_root/COPYRIGHT" "$app_path/Contents/Resources/PostgreSQL-LICENSE.txt"
 printf 'APPL????' > "$app_path/Contents/PkgInfo"
 

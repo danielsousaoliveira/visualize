@@ -22,14 +22,6 @@ struct MainWindow: View {
                     ToolbarItem {
                         Button("Listening ports", systemImage: "dot.radiowaves.left.and.right") { showingPorts = true }.help("Listening ports")
                     }
-                    ToolbarItem {
-                        Toggle("Show coding agents", isOn: Binding(
-                            get: { appState.settings.showCodingAgents },
-                            set: { appState.settings.setShowCodingAgents($0) }
-                        ))
-                        .toggleStyle(.button)
-                        .help("Show Codex, Cursor, Copilot, OpenCode and Claude listeners")
-                    }
                 }
         } detail: {
             detail

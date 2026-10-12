@@ -13,32 +13,6 @@ struct VisualizeApp: App {
     }
 
     var body: some Scene {
-        Window("visualize", id: MainWindow.id) {
-            MainWindow()
-                .environment(appState)
-                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                    Task { await appState.checkDocker() }
-                }
-        }
-        .commands {
-            LibraryCommands(appState: appState)
-        }
-
-        Settings {
-            AppSettingsView().environment(appState)
-        }
-
-        MenuBarExtra {
-            MenuBarPopover()
-                .environment(appState)
-        }
-        label: {
-            Label {
-                if !appState.listenerStore.listeners.isEmpty {
-                    Text(String(appState.listenerStore.listeners.count))
-                }
-            } icon: { Image(systemName: "circle.hexagongrid") }
-        }
-        .menuBarExtraStyle(.window)
+        VisualizeScenes(appState: appState)
     }
 }
