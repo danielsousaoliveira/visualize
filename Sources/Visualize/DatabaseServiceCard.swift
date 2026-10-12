@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct DatabaseServiceCard: View {
+    @Environment(AppState.self) private var appState
     let project: Project
     let infra: ScanInfra
     let result: ScanResult
@@ -14,6 +15,10 @@ struct DatabaseServiceCard: View {
                     .textSelection(.enabled)
             } else {
                 InfraCard(infra: infra, services: result.services)
+                let listeners = appState.listenerStore.listeners.filter {
+                    $0.libraryProjectID == project.id && $0.serviceID == nil && $0.port == infra.port
+                }
+                if !listeners.isEmpty { RunningListenersView(listeners: listeners) }
             }
         }
     }

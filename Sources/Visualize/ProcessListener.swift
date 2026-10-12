@@ -14,7 +14,9 @@ struct ProcessListener: Identifiable, Sendable {
     var gitBranch: String?
 
     var libraryProjectID: UUID? = nil
+    var repositoryRoot: String? = nil
     var serviceName: String? = nil
+    var serviceID: String? = nil
     var startedByVisualize = false
     var attributionLabel: String {
         if libraryProjectID != nil || startedByVisualize {
@@ -22,7 +24,7 @@ struct ProcessListener: Identifiable, Sendable {
         }
         return container.map { $0.composeProject ?? $0.name } ?? "\(projectName ?? "Unknown project") / \(name)"
     }
-    var attributionGroup: String { libraryProjectID == nil && !startedByVisualize ? "Other" : projectName ?? "Unknown project" }
+    var attributionGroup: String { libraryProjectID == nil && !startedByVisualize && repositoryRoot == nil ? "Other" : projectName ?? "Unknown project" }
 
     var container: DockerContainer? = nil
 
@@ -31,6 +33,12 @@ struct ProcessListener: Identifiable, Sendable {
         return "\(port):\(pid):\(startedAt?.seconds ?? 0):\(startedAt?.microseconds ?? 0)"
     }
     var identity: ProcessIdentity? { startedAt }
+    var processExplanation: String {
+        if workingDirectory?.contains("/listener-project-") == true { return "Listener test fixture" }
+        if workingDirectory?.contains("/.gradle/daemon/") == true { return "Java build worker" }
+        if workingDirectory?.contains("/kotlin/daemon") == true { return "Kotlin build worker" }
+        return executablePath.map { URL(filePath: $0).lastPathComponent } ?? name
+    }
 }
 
 struct ProcessIdentity: Hashable, Sendable {

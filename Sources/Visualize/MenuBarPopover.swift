@@ -6,10 +6,16 @@ struct MenuBarPopover: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openURL) private var openURL
     @State private var screenHeight: CGFloat = NSScreen.main?.visibleFrame.height ?? 700
-    @State private var displayed: [ProcessListenerGroup] = []
+    private var displayed: [ProcessListenerGroup] {
+        ProcessListenerGroup.groups(appState.listenerStore.listeners).sorted {
+            if ($0.id == "other") != ($1.id == "other") { return $1.id == "other" }
+            return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
+    }
     @State private var hovered: String?
     @State private var selected: String?
     @State private var busy: Set<String> = []
+    @State private var showOther = false
     @FocusState private var focused: String?
 
     private var rows: [ProcessListener] {
@@ -17,12 +23,10 @@ struct MenuBarPopover: View {
     }
 
     var body: some View {
-        WidgetPopoverLayout(maxHeight: screenHeight - 48, spacing: 12) {
+        VStack(spacing: 12) {
             ScrollViewReader { proxy in
-                ViewThatFits(in: .vertical) {
-                    listenerList
-                    ScrollView { listenerList }
-                }
+                ScrollView { listenerList }
+                    .frame(height: min(max(60, CGFloat(displayed.filter { showOther || $0.id != "other" }.flatMap(\.listeners).count * 100 + displayed.count * 36)), max(60, screenHeight - 180)))
                 .onChange(of: selected) { if let selected { proxy.scrollTo(selected) } }
             }
             VStack(spacing: 12) {
@@ -84,6 +88,11 @@ struct MenuBarPopover: View {
                     .frame(maxWidth: .infinity, minHeight: 60)
             } else {
                 ForEach(displayed) { group in
+                    if group.id == "other" {
+                        DisclosureGroup("Other listeners (\(group.listeners.count))", isExpanded: $showOther) {
+                            ForEach(group.listeners) { listener in row(listener).id(listener.id) }
+                        }
+                    } else {
                     HStack {
                         Text(group.name).font(.headline).lineLimit(1)
                         Spacer()
@@ -98,6 +107,7 @@ struct MenuBarPopover: View {
                     ForEach(group.listeners) { listener in
                         row(listener).id(listener.id)
                     }
+                    }
                 }
             }
         }
@@ -107,7 +117,15 @@ struct MenuBarPopover: View {
     private func row(_ listener: ProcessListener) -> some View {
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(listener.serviceName ?? listener.name).lineLimit(1)
+                Text(listener.serviceName ?? listener.container?.name ?? processName(listener)).lineLimit(1)
+                    .help(listener.container.map { "\($0.name) · \($0.image)" } ?? "PID \(listener.pid) · \(listener.executablePath ?? listener.name)\n\(listener.workingDirectory ?? "Working directory unavailable")")
+                if listener.libraryProjectID == nil {
+                    Text(listener.container?.image ?? "\(listener.processExplanation) · PID \(listener.pid)")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                if let branch = listener.gitBranch {
+                    Text(branch).font(.caption).foregroundStyle(.secondary).lineLimit(1).help(branch)
+                }
                 HStack(spacing: 6) {
                     Text(listener.container == nil ? "process" : "container")
                         .padding(.horizontal, 5).background(.quaternary, in: Capsule())
@@ -148,18 +166,6 @@ struct MenuBarPopover: View {
         if let hovered, !liveIDs.contains(hovered) { self.hovered = nil }
         if let selected, !liveIDs.contains(selected) { self.selected = nil }
         if let focused, !liveIDs.contains(focused) { self.focused = nil }
-        if hovered != nil || appState.pendingWidgetStop != nil {
-            let current = Dictionary(uniqueKeysWithValues: appState.listenerStore.listeners.map { ($0.id, $0) })
-            displayed = displayed.compactMap { group in
-                let listeners = group.listeners.compactMap { current[$0.id] }
-                return listeners.isEmpty ? nil : ProcessListenerGroup(id: group.id, name: group.name, listeners: listeners)
-            }
-            return
-        }
-        displayed = ProcessListenerGroup.groups(appState.listenerStore.listeners).sorted {
-            if ($0.id == "other") != ($1.id == "other") { return $1.id == "other" }
-            return $0.name.localizedStandardCompare($1.name) == .orderedAscending
-        }
     }
 
     private func move(_ offset: Int) {
@@ -168,6 +174,14 @@ struct MenuBarPopover: View {
         let next = min(rows.count - 1, max(0, index + offset))
         selected = rows[next].id
         focused = rows[next].id
+    }
+
+    private func processName(_ listener: ProcessListener) -> String {
+        guard let path = listener.executablePath, !path.isEmpty else { return listener.name }
+        let executable = URL(filePath: path).lastPathComponent
+        if executable == "java", listener.workingDirectory?.contains("/.gradle/daemon/") == true { return "Gradle daemon" }
+        if executable == "java", listener.workingDirectory?.contains("/kotlin/daemon") == true { return "Kotlin compiler daemon" }
+        return executable
     }
 
     private func openPort(_ listener: ProcessListener) {

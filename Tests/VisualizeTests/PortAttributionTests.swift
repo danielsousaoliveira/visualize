@@ -3,6 +3,29 @@ import Testing
 @testable import visualize
 
 struct PortAttributionTests {
+    @Test func worktreeMapsToParentLibraryAndKeepsItsBranch() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = root.appending(path: "bmag", directoryHint: .isDirectory)
+        let original = library.appending(path: "bmag-parser", directoryHint: .isDirectory)
+        let gitDirectory = original.appending(path: ".git/worktrees/parser", directoryHint: .isDirectory)
+        let worktree = root.appending(path: "workspaces/nex-65", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: gitDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: worktree.appending(path: "src"), withIntermediateDirectories: true)
+        try "gitdir: \(gitDirectory.path)\n".write(to: worktree.appending(path: ".git"), atomically: true, encoding: .utf8)
+        try "../..\n".write(to: gitDirectory.appending(path: "commondir"), atomically: true, encoding: .utf8)
+        try "ref: refs/heads/donextis/nex-65\n".write(to: gitDirectory.appending(path: "HEAD"), atomically: true, encoding: .utf8)
+        let project = Project(folder: library)
+        let entry = PortAttribution.resolve(listener(worktree.appending(path: "src").path), projects: [project])
+        #expect(entry.libraryProjectID == project.id)
+        #expect(entry.projectName == "bmag")
+        #expect(entry.serviceName == "bmag-parser")
+        #expect(entry.gitBranch == "donextis/nex-65")
+        #expect(!entry.startedByVisualize)
+        #expect(PortAttribution.externalName(directory: worktree.path) == "bmag-parser")
+        #expect(ProcessListenerGroup.groups([entry]).first?.id == "library:\(project.id.uuidString)")
+    }
+
     private func listener(_ cwd: String) -> ProcessListener {
         ProcessListener(port: 3000, pid: 123, name: "node", executablePath: nil, workingDirectory: cwd,
                         startedAt: nil, cpuPercent: nil, memoryBytes: nil, projectName: "external", projectFolder: nil, gitBranch: nil)

@@ -3,7 +3,13 @@ import Foundation
 @MainActor
 @Observable
 final class ProcessListenerStore {
-    private(set) var listeners: [ProcessListener] = []
+    private var allListeners: [ProcessListener] = []
+    var showCodingAgents = false
+    var listeners: [ProcessListener] {
+        allListeners.filter {
+            !ListenerVisibility.isDesktopOrSystem($0) && (showCodingAgents || !ListenerVisibility.isCodingAgent($0))
+        }
+    }
     private(set) var lastScan: Date?
     var scanInterval = 2
     var lowerPort = 1024
@@ -68,12 +74,13 @@ final class ProcessListenerStore {
         }
     }
 
-    func configure(interval: Int, lower: Int, upper: Int) {
+    func configure(interval: Int, lower: Int, upper: Int, showCodingAgents: Bool = false) {
+        self.showCodingAgents = showCodingAgents
         scanInterval = interval
         lowerPort = lower
         upperPort = upper
         processes.removeAll { !(lower...upper).contains($0.port) }
-        listeners.removeAll { !(lower...upper).contains($0.port) }
+        allListeners.removeAll { !(lower...upper).contains($0.port) }
     }
 
     func stop() {
@@ -86,7 +93,7 @@ final class ProcessListenerStore {
     private func merge(projects: [Project], ownedAttribution: (ProcessListener) -> ProcessListener?) {
         let lower = min(65535, max(1, lowerPort))
         let upper = min(65535, max(1, upperPort))
-        listeners = DockerContainerMonitor.merge(processes: processes.map { ownedAttribution($0) ?? PortAttribution.resolve($0, projects: projects) }, containers: containers, projects: projects,
+        allListeners = DockerContainerMonitor.merge(processes: processes.map { ownedAttribution($0) ?? PortAttribution.resolve($0, projects: projects) }, containers: containers, projects: projects,
                                                  ports: lower <= upper ? lower...upper : nil, dockerOwnership: dockerOwnership)
             .filter { lower <= $0.port && $0.port <= upper }
     }
@@ -116,7 +123,7 @@ final class ProcessListenerStore {
             }.value
             if action == "stop" {
                 containers.removeAll { $0.id == container.id }
-                listeners.removeAll { $0.container?.id == container.id }
+                allListeners.removeAll { $0.container?.id == container.id }
             }
         } catch { actionError = error.localizedDescription }
     }

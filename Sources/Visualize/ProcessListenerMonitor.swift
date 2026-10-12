@@ -19,8 +19,7 @@ final class ProcessListenerMonitor: @unchecked Sendable {
         previousCPU = previousCPU.filter { observed.contains($0.key) }
         var externalNames: [String: String] = [:]
         return records.compactMap { record in
-            guard let sample = samples[record.pid], sample.identity != nil,
-                  !sample.executablePath.split(separator: "/").contains(where: { $0.hasSuffix(".app") }) else { return nil }
+            guard let sample = samples[record.pid], sample.identity != nil else { return nil }
             let directory = sample.workingDirectory
             if let directory, externalNames[directory] == nil {
                 externalNames[directory] = PortAttribution.externalName(directory: directory)
@@ -28,7 +27,7 @@ final class ProcessListenerMonitor: @unchecked Sendable {
             let treeSamples = (trees[record.pid] ?? [record.pid]).compactMap { samples[$0] }
             let cpu = treeSamples.compactMap(\.cpuPercent).reduce(0, +)
             let memory = treeSamples.compactMap(\.memoryBytes).reduce(UInt64(0), &+)
-            return ProcessListener(port: record.port, pid: record.pid, name: record.name,
+            return ProcessListener(port: record.port, pid: record.pid, name: sample.executablePath.isEmpty ? record.name : URL(filePath: sample.executablePath).lastPathComponent,
                                    executablePath: sample.executablePath, workingDirectory: directory,
                                    startedAt: sample.identity, cpuPercent: treeSamples.contains(where: { $0.cpuPercent != nil }) ? cpu : nil,
                                    memoryBytes: memory == 0 ? nil : memory, projectName: directory.flatMap { externalNames[$0] },

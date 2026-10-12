@@ -21,6 +21,9 @@ struct ProjectDetailView: View {
         Group {
             if project.folderExists {
                 VStack(spacing: 0) {
+                    if project.lastResult == nil {
+                        RunningListenersView(listeners: appState.listenerStore.listeners.filter { $0.libraryProjectID == project.id }).padding(24)
+                    }
                     content
                     if let error, graphSelected || project.lastResult == nil {
                         Divider()
@@ -106,7 +109,7 @@ struct ProjectDetailView: View {
                 )) {
                     Text("Services").tag(false)
                     Text("Graph").tag(true)
-                }.pickerStyle(.segmented).padding(.horizontal, 24).padding(.top, 12)
+                }.pickerStyle(.segmented).fixedSize().frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 24).padding(.top, 12)
                 if graphSelected, let model = appState.graphModel(projectID: project.id) {
                     ProjectGraphView(project: project, model: model) { id in
                         logServiceID = id
@@ -138,6 +141,14 @@ struct ProjectDetailView: View {
                                     ForEach(result.infra, id: \.id) { infra in
                                         DatabaseServiceCard(project: project, infra: infra, result: result)
                                     }
+                                }
+                                let unmatched = appState.listenerStore.listeners.filter { listener in
+                                    listener.libraryProjectID == project.id && !result.services.contains(where: { service in service.id == listener.serviceID })
+                                        && !result.infra.contains(where: { $0.providedBy == nil && $0.port == listener.port && listener.serviceID == nil })
+                                }
+                                if !unmatched.isEmpty {
+                                    sectionTitle("Other running services", count: unmatched.count)
+                                    RunningListenersView(listeners: unmatched)
                                 }
                                 if !result.composeFiles.isEmpty {
                                     sectionTitle("Compose", count: result.composeFiles.count)
@@ -223,7 +234,7 @@ struct ProjectDetailView: View {
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
             HStack(spacing: 20) {
-                Label(result.project.gitBranch ?? "No git branch detected", systemImage: "arrow.triangle.branch")
+                Label(result.project.gitBranch ?? "Branches are shown on each running checkout", systemImage: "arrow.triangle.branch")
                 Text("Type: \(result.project.type.rawValue)")
             }
             .font(.callout)

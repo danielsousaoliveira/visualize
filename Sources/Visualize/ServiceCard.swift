@@ -14,6 +14,9 @@ struct ServiceCard: View {
     private var variables: [ScanEnvVariable] { environment?.variables ?? [] }
     private var missing: [ScanEnvVariable] { variables.filter { $0.status == .missing } }
     private var setCount: Int { variables.filter { $0.status != .missing }.count }
+    private var listeners: [ProcessListener] {
+        appState.listenerStore.listeners.filter { $0.libraryProjectID == project.id && $0.serviceID == service.id }
+    }
 
     var body: some View {
         GroupBox {
@@ -40,8 +43,8 @@ struct ServiceCard: View {
                 }
                 let run = appState.serviceRuns[appState.runKey(project: project, service: service)]
                 HStack {
-                    Text(run?.status ?? "Stopped")
-                    if let port = service.port {
+                    Text(run?.active == true ? run?.status ?? "Running" : listeners.isEmpty ? run?.status ?? "Stopped" : "Running externally")
+                    if let port = service.port, listeners.isEmpty {
                         Label(run?.docker != nil && run?.active == true ? "Port \(port) published" : run?.portReady == true ? "Port \(port) listening" : "Port \(port) waiting", systemImage: run?.portReady == true ? "circle.fill" : "circle")
                             .foregroundStyle(run?.portReady == true ? .green : .secondary)
                     }
@@ -82,9 +85,14 @@ struct ServiceCard: View {
                         Text(mode.rawValue).tag(mode)
                     }
                 }
-                .pickerStyle(.segmented)
+                .pickerStyle(.menu)
+                .fixedSize()
                 .help("Choose how to run this service")
                 .disabled(run?.active == true || run?.busy == true || run?.stopping == true)
+                if !listeners.isEmpty {
+                    Divider()
+                    RunningListenersView(listeners: listeners)
+                }
                 if environment == nil {
                     Text("Env status unavailable — rescan to check").font(.callout).foregroundStyle(.secondary)
                 } else if missing.isEmpty {
@@ -134,9 +142,17 @@ struct ServiceCard: View {
 
     @ViewBuilder
     private var metadata: some View {
-        Text("\(service.stackId ?? "Unknown stack") • \(service.category ?? "Unclassified")")
-        Text("Package manager: \(service.packageManager ?? "Not detected")")
+        if let stack = service.stackId { Text([stack, service.category].compactMap { $0 }.joined(separator: " • ")) }
+        else if let image = composeImage { Text("Image: \(image)") }
+        else { Text(service.runModes.compose.available ? "Compose service" : "Application stack not detected") }
+        if let manager = service.packageManager { Text("Package manager: \(manager)") }
         Text(service.port.map { "Port: \(String($0))" } ?? "Port: Not detected")
+    }
+
+    private var composeImage: String? {
+        project.lastResult?.composeServices.first {
+            $0.name == service.runModes.compose.serviceName && $0.composeFile == service.runModes.compose.composeFile
+        }?.image
     }
 
     private func shellArgument(_ argument: String) -> String {
