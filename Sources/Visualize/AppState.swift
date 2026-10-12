@@ -220,6 +220,11 @@ final class AppState {
                 result.serviceName = service.name
                 result.serviceID = service.id
                 result.startedByVisualize = true
+                if let directory = listener.workingDirectory,
+                   let repository = RepositoryLocation.find(directory: directory) {
+                    result.repositoryRoot = repository.root
+                    result.gitBranch = repository.branch
+                }
                 return result
             }
         }

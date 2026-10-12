@@ -19,7 +19,7 @@ struct MenuBarPopover: View {
     @FocusState private var focused: String?
 
     private var rows: [ProcessListener] {
-        displayed.flatMap(\.listeners)
+        displayed.filter { showOther || $0.id != "other" }.flatMap(\.listeners)
     }
 
     var body: some View {
@@ -55,6 +55,7 @@ struct MenuBarPopover: View {
             transaction.disablesAnimations = true
         }
         .onAppear { update() }
+        .onChange(of: showOther) { update() }
         .onChange(of: appState.listenerStore.listeners.map(\.id)) { update() }
         .onChange(of: appState.listenerStore.lastScan) { update() }
         .onChange(of: hovered) { if hovered == nil { update() } }
@@ -82,7 +83,7 @@ struct MenuBarPopover: View {
 
     private var listenerList: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if rows.isEmpty {
+            if displayed.isEmpty {
                 Text("Nothing running")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 60)
@@ -162,7 +163,7 @@ struct MenuBarPopover: View {
     }
 
     private func update() {
-        let liveIDs = Set(appState.listenerStore.listeners.map(\.id))
+        let liveIDs = Set(rows.map(\.id))
         if let hovered, !liveIDs.contains(hovered) { self.hovered = nil }
         if let selected, !liveIDs.contains(selected) { self.selected = nil }
         if let focused, !liveIDs.contains(focused) { self.focused = nil }

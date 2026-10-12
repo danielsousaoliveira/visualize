@@ -15,9 +15,16 @@ struct PortAttribution {
         }
         let container = listener.container
         let owned = container?.isOwned(by: dockerOwnership) == true
+        let directProject = directory.flatMap { path in
+            projects.filter { contains($0.folderPath, path) }.max { $0.folderPath.count < $1.folderPath.count }
+        }
+        let savedWorktree = repository.flatMap { repository in
+            directProject.flatMap { contains(repository.root, $0.folderPath) ? $0 : nil }
+        }
         let project = (owned ? projects.first { $0.id.uuidString == container?.labels["visualize.library"] } : nil)
-            ?? (owned ? nil : directory.flatMap { path in projects.filter { contains($0.folderPath, path) }.max { $0.folderPath.count < $1.folderPath.count } })
+            ?? (owned ? nil : savedWorktree)
             ?? (owned ? nil : attributionDirectory.flatMap { path in projects.filter { contains($0.folderPath, path) }.max { $0.folderPath.count < $1.folderPath.count } })
+            ?? (owned ? nil : directProject)
         result.libraryProjectID = project?.id
         result.startedByVisualize = owned
         result.projectName = project?.lastResult?.project.name ?? project?.name ?? container?.visualizeProject ?? container?.composeProject ?? listener.projectName
@@ -34,13 +41,14 @@ struct PortAttribution {
             } ?? candidates.first
             result.serviceID = matched?.id
             result.serviceName = matched?.name ?? key
-        } else if let project, let directory = attributionDirectory {
+        } else if let project, let directory = savedWorktree == nil ? attributionDirectory : directory {
+            let infrastructure = project.lastResult?.infra.first { $0.providedBy == nil && $0.port == listener.port }
             let matched = services.filter { service in
                 let root = serviceRoot(service, project: project)
                 return contains(project.folderPath, root) && contains(root, directory)
             }.max { serviceRoot($0, project: project).count < serviceRoot($1, project: project).count }
-            result.serviceID = matched?.id
-            result.serviceName = matched?.name ?? repository.map { URL(filePath: $0.originalRoot).lastPathComponent }
+            result.serviceID = infrastructure == nil ? matched?.id : nil
+            result.serviceName = infrastructure?.kind.rawValue ?? matched?.name ?? repository.map { URL(filePath: $0.originalRoot).lastPathComponent }
         }
         return result
     }
