@@ -1,0 +1,8 @@
+{
+  "name": "visualize",
+  "private": true,
+  "scripts": {
+    "dev": "bash scripts/dev.sh",
+    "build": "bash scripts/build-app.sh"
+  }
+}
