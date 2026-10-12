@@ -5,9 +5,12 @@ struct InfraCard: View {
     let services: [ScanService]
 
     var body: some View {
-        GroupBox {
+        InsetSurface {
             VStack(alignment: .leading, spacing: 10) {
-                Text(kindName).font(.headline)
+                HStack(spacing: 10) {
+                    TechnologyIcon(technology: infra.kind.rawValue)
+                    Text(kindName).font(.headline)
+                }
                 Text("Used by: \(infra.usedBy.isEmpty ? "No services detected" : infra.usedBy.map(serviceName).joined(separator: ", "))")
                 if infra.host != nil || infra.port != nil {
                     HStack(spacing: 20) {
@@ -27,7 +30,7 @@ struct InfraCard: View {
             }
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(8)
+
         }
     }
 

@@ -13,10 +13,8 @@ struct MenuBarPopover: View {
         }
     }
     @State private var hovered: String?
-    @State private var selected: String?
     @State private var busy: Set<String> = []
     @State private var showOther = false
-    @FocusState private var focused: String?
 
     private var rows: [ProcessListener] {
         displayed.filter { showOther || $0.id != "other" }.flatMap(\.listeners)
@@ -24,11 +22,13 @@ struct MenuBarPopover: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            ScrollViewReader { proxy in
-                ScrollView { listenerList }
-                    .frame(height: min(max(60, CGFloat(displayed.filter { showOther || $0.id != "other" }.flatMap(\.listeners).count * 100 + displayed.count * 36)), max(60, screenHeight - 180)))
-                .onChange(of: selected) { if let selected { proxy.scrollTo(selected) } }
-            }
+            HStack {
+                Text("Running services").font(.headline)
+                Spacer()
+                Text("\(appState.listenerStore.listeners.count)").font(.callout).foregroundStyle(.secondary).monospacedDigit()
+            }.padding(.horizontal, 4)
+            ScrollView { listenerList }
+                .frame(height: min(max(72, CGFloat(rows.count * 76 + displayed.count * 40)), max(72, screenHeight - 190)))
             VStack(spacing: 12) {
                 if appState.dockerState.unavailableReason() != nil {
                     Text("Container ports are not shown").font(.caption).foregroundStyle(.secondary)
@@ -46,8 +46,9 @@ struct MenuBarPopover: View {
                 }
             }
         }
+        .tint(.primary)
         .padding(12)
-        .frame(width: 380)
+        .frame(width: 400)
         .fixedSize(horizontal: false, vertical: true)
         .background { WidgetScreenReader { screenHeight = $0 } }
         .transaction { transaction in
@@ -60,19 +61,6 @@ struct MenuBarPopover: View {
         .onChange(of: appState.listenerStore.lastScan) { update() }
         .onChange(of: hovered) { if hovered == nil { update() } }
         .onChange(of: appState.pendingWidgetStop?.id) { if appState.pendingWidgetStop == nil { update() } }
-        .onChange(of: focused) { if let focused { selected = focused } }
-        .onKeyPress(.upArrow) { move(-1); return .handled }
-        .onKeyPress(.downArrow) { move(1); return .handled }
-        .onKeyPress(.return) {
-            guard let listener = rows.first(where: { $0.id == selected }) else { return .ignored }
-            openPort(listener)
-            return .handled
-        }
-        .onKeyPress(.delete) {
-            guard let listener = rows.first(where: { $0.id == selected }) else { return .ignored }
-            appState.pendingWidgetStop = listener
-            return .handled
-        }
         .confirmationDialog("Stop listening service?", isPresented: Binding(get: { appState.pendingWidgetStop != nil }, set: { if !$0 { appState.pendingWidgetStop = nil } }), titleVisibility: .visible, presenting: appState.pendingWidgetStop) { listener in
             Button("Stop \(listener.serviceName ?? listener.name)", role: .destructive) { act(listener, externalStopConfirmed: true) }.help("Stop this service")
             Button("Cancel", role: .cancel) {}.help("Cancel")
@@ -95,7 +83,13 @@ struct MenuBarPopover: View {
                         }
                     } else {
                     HStack {
-                        Text(group.name).font(.headline).lineLimit(1)
+                        Button { openProject(projectID(group.listeners.first)) } label: {
+                            HStack(spacing: 8) {
+                                TechnologyIcon(technology: technology(group.listeners.first), size: 16)
+                                Text(group.name).font(.headline).lineLimit(1)
+                                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
+                            }
+                        }.buttonStyle(.plain).help(projectID(group.listeners.first) == nil ? "Open visualize" : "Open this project in visualize")
                         Spacer()
                         if group.id != "other" && appState.widgetStopManagedAvailable(group) {
                             Button("Stop managed") {
@@ -117,6 +111,9 @@ struct MenuBarPopover: View {
 
     private func row(_ listener: ProcessListener) -> some View {
         HStack(spacing: 8) {
+            Button { openProject(projectID(listener)) } label: {
+            HStack(spacing: 10) {
+            TechnologyIcon(technology: technology(listener), size: 18)
             VStack(alignment: .leading, spacing: 3) {
                 Text(listener.serviceName ?? listener.container?.name ?? processName(listener)).lineLimit(1)
                     .help(listener.container.map { "\($0.name) · \($0.image)" } ?? "PID \(listener.pid) · \(listener.executablePath ?? listener.name)\n\(listener.workingDirectory ?? "Working directory unavailable")")
@@ -135,26 +132,29 @@ struct MenuBarPopover: View {
                     }
                 }.font(.caption).foregroundStyle(.secondary)
             }
-            Spacer(minLength: 4)
-            Button(String(listener.port)) { selected = listener.id; openPort(listener) }
-                .buttonStyle(.link).monospacedDigit()
+            Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            }.buttonStyle(.plain).help(projectID(listener) == nil ? "Open visualize" : "Open this project in visualize")
+            Button(String(listener.port)) { openPort(listener) }
+                .buttonStyle(.plain).font(.callout.monospacedDigit()).foregroundStyle(.primary)
                 .help("Open localhost:\(listener.port) in the browser")
             HStack(spacing: 6) {
-                Button { requestStop(listener) } label: { Image(systemName: "stop.fill") }
+                Button { requestStop(listener) } label: { Image(systemName: "stop") }
                     .help("Stop")
                 Button { act(listener, restart: true) } label: { Image(systemName: "arrow.clockwise") }
                     .disabled(!appState.widgetRestartAvailable(listener))
                     .help(appState.widgetRestartAvailable(listener) ? "Restart" : "Not started by visualize")
             }
             .buttonStyle(.borderless)
+            .font(.system(size: 12, weight: .light))
             .disabled(busy.contains(listener.id))
-            .opacity(hovered == listener.id || focused == listener.id || selected == listener.id ? 1 : 0)
+            .foregroundStyle(.secondary)
         }
-        .padding(6)
-        .background(selected == listener.id ? Color.accentColor.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 6))
-        .contentShape(Rectangle())
-        .onTapGesture { selected = listener.id; focused = listener.id }
-        .focusable().focused($focused, equals: listener.id)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(hovered == listener.id ? Color.primary.opacity(0.05) : .clear, in: RoundedRectangle(cornerRadius: 8))
         .onHover { inside in
             if inside { hovered = listener.id }
             else if hovered == listener.id { hovered = nil }
@@ -165,16 +165,6 @@ struct MenuBarPopover: View {
     private func update() {
         let liveIDs = Set(rows.map(\.id))
         if let hovered, !liveIDs.contains(hovered) { self.hovered = nil }
-        if let selected, !liveIDs.contains(selected) { self.selected = nil }
-        if let focused, !liveIDs.contains(focused) { self.focused = nil }
-    }
-
-    private func move(_ offset: Int) {
-        guard !rows.isEmpty else { return }
-        let index = selected.flatMap { id in rows.firstIndex { $0.id == id } } ?? (offset > 0 ? -1 : rows.count)
-        let next = min(rows.count - 1, max(0, index + offset))
-        selected = rows[next].id
-        focused = rows[next].id
     }
 
     private func processName(_ listener: ProcessListener) -> String {
@@ -213,10 +203,31 @@ struct MenuBarPopover: View {
         return "\(seconds)s"
     }
 
-    private func openMainWindow() {
-        if let listener = rows.first(where: { $0.id == selected }), let id = listener.libraryProjectID {
-            appState.selection = id
+    private func projectID(_ listener: ProcessListener?) -> UUID? {
+        guard let listener else { return nil }
+        if let id = listener.libraryProjectID { return id }
+        return appState.projects.sorted { $0.folderPath.count > $1.folderPath.count }.first { project in
+            [listener.repositoryRoot, listener.workingDirectory].compactMap { $0 }.contains { path in
+                path == project.folderPath || path.hasPrefix(project.folderPath + "/")
+            }
+        }?.id
+    }
+
+    private func technology(_ listener: ProcessListener?) -> String? {
+        guard let listener else { return nil }
+        if let project = appState.projects.first(where: { $0.id == projectID(listener) }) {
+            return project.lastResult?.services.first(where: { $0.id == listener.serviceID })?.stackId
+                ?? project.lastResult?.services.compactMap(\.stackId).first
         }
+        return listener.container?.image.components(separatedBy: ":").first ?? processName(listener)
+    }
+
+    private func openProject(_ id: UUID?) {
+        if let id { appState.selection = id }
+        openMainWindow()
+    }
+
+    private func openMainWindow() {
         openWindow(id: MainWindow.id)
         NSApp.activate(ignoringOtherApps: true)
     }

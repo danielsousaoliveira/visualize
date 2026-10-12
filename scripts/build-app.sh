@@ -50,6 +50,7 @@ build_helper
 rm -rf "$app_path"
 mkdir -p "$app_path/Contents/MacOS" "$app_path/Contents/Helpers" "$app_path/Contents/Resources"
 cp "$binary_path" "$app_path/Contents/MacOS/$app_name"
+cp -R "$(dirname "$binary_path")/visualize_visualize.bundle" "$app_path/Contents/Resources/"
 cp "$helper_build/$helper_name" "$app_path/Contents/Helpers/$helper_name"
 cp "$repo_root/Resources/Info.plist" "$app_path/Contents/Info.plist"
 cp "$repo_root/Resources/AppIcon.icns" "$app_path/Contents/Resources/AppIcon.icns"
