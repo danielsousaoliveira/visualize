@@ -219,19 +219,22 @@ struct ProjectDetailView: View {
                 .pickerStyle(.menu)
                 .fixedSize()
                 .disabled(availableStartModes(result).count < 2 || appState.projectOperations[project.id]?.busy == true || isScanning)
-                .help("Choose how to start the services; unsupported services stay stopped")
+                .help(["Choose how to start the services; unsupported services stay stopped", dockerStartUnavailableReason(result)].compactMap { $0 }.joined(separator: ". "))
                 .onChange(of: availableStartModes(result), initial: true) { _, modes in
                     if !modes.contains(startMode) { startMode = modes.first ?? .local }
                 }
                 }
                 Button("Start all", systemImage: "play.fill") { requestStart(startMode) }
                     .disabled(appState.projectOperations[project.id]?.busy == true || isScanning || !canStart(result))
-                    .help("Start stopped services using the selected mode")
+                    .help(startMode == .docker ? dockerStartUnavailableReason(result) ?? "Start stopped services using Docker" : "Start stopped services locally")
                 Button("Stop all") { Task { await appState.stopAll(project: project) } }
                     .disabled(appState.projectOperations[project.id]?.busy == true || !hasManagedServices)
                     .help("Stop services started by visualize")
                 Button("Rescan", systemImage: "arrow.clockwise", action: onRescan).help("Scan this folder and its subfolders again")
                     .disabled(isScanning || appState.projectOperations[project.id]?.busy == true)
+            }
+            if startMode == .docker, let reason = dockerStartUnavailableReason(result) {
+                Text(reason).font(.callout).foregroundStyle(.secondary)
             }
             Text(project.folderPath)
                 .font(.callout)
@@ -261,6 +264,15 @@ struct ProjectDetailView: View {
         if result.services.contains(where: { ServiceMode.available(for: $0).contains(.local) }) { modes.append(.local) }
         if result.services.contains(where: { ServiceMode.available(for: $0).contains { $0 != .local } }) { modes.append(.docker) }
         return modes
+    }
+
+    private func dockerStartUnavailableReason(_ result: ScanResult) -> String? {
+        let modes = result.services.compactMap { service in
+            ProjectStartMode.docker.resolve(service, remembered: appState.mode(project: project, service: service))
+        }
+        guard !modes.isEmpty else { return nil }
+        let reasons = modes.compactMap { appState.dockerState.unavailableReason(compose: $0 == .compose) }
+        return reasons.count == modes.count ? reasons.first : nil
     }
 
     private func canStart(_ result: ScanResult) -> Bool {
