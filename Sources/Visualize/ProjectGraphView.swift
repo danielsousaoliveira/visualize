@@ -106,10 +106,11 @@ struct ProjectGraphView: View {
               let right = positions.map({ $0.x + GraphNodeCard.size.width / 2 }).max(),
               let top = positions.map({ $0.y - GraphNodeCard.size.height / 2 }).min(),
               let bottom = positions.map({ $0.y + GraphNodeCard.size.height / 2 }).max() else { return }
+        let parallelCount = Dictionary(grouping: graph.edges) { [$0.from, $0.to].sorted() }.values.map(\.count).max() ?? 1
         let edgeSpace: CGFloat = graph.edges.contains { edge in
             guard let from = graph.positions[edge.from], let to = graph.positions[edge.to] else { return false }
             return abs(from.x - to.x) > 400
-        } ? 120 : 0
+        } ? 120 + CGFloat(parallelCount - 1) * 12 : 0
         let contentTop = top - edgeSpace
         let canvasHeight = max(1, size.height - 52)
         zoom = min(1, max(0.25, min(max(1, size.width - 64) / (right - left),
@@ -119,10 +120,11 @@ struct ProjectGraphView: View {
     }
 
     private func drawEdges(_ context: inout GraphicsContext, size: CGSize) {
-        var seen: Set<String> = []
+        var seen: Set<[String]> = []
         let edges = graph.edges.filter { edge in
-            seen.insert([edge.from, edge.to].joined(separator: "\u{0}")).inserted
+            seen.insert([edge.from, edge.to, edge.kind.rawValue, edge.label]).inserted
         }
+        let groups = Dictionary(grouping: edges) { [$0.from, $0.to].sorted() }
         for edge in edges {
             guard let from = position(edge.from), let to = position(edge.to) else { continue }
             let direction: CGFloat = from.x <= to.x ? 1 : -1
@@ -132,9 +134,12 @@ struct ProjectGraphView: View {
             let selfEdge = edge.from == edge.to
             let longEdge = abs(from.x - to.x) > 400
             let top = (graph.positions.values.map(\.y).min() ?? 0) - GraphNodeCard.size.height / 2 - 50
-            let laneY = screen(GraphPosition(x: 0, y: top - Double(edge.id % 4) * 18)).y
-            let c1 = CGPoint(x: start.x + direction * bend, y: selfEdge ? start.y - 140 * zoom : longEdge ? laneY : start.y)
-            let c2 = CGPoint(x: end.x - direction * bend, y: selfEdge ? end.y - 140 * zoom : longEdge ? laneY : end.y)
+            let peers = groups[[edge.from, edge.to].sorted()] ?? [edge]
+            let lane = CGFloat(peers.firstIndex { $0.id == edge.id } ?? 0) - CGFloat(peers.count - 1) / 2
+            let laneOffset = lane * 24 * zoom
+            let laneY = screen(GraphPosition(x: 0, y: top - Double((peers.first?.id ?? edge.id) % 4) * 18)).y
+            let c1 = CGPoint(x: start.x + direction * bend, y: (selfEdge ? start.y - 140 * zoom : longEdge ? laneY : start.y) + laneOffset)
+            let c2 = CGPoint(x: end.x - direction * bend, y: (selfEdge ? end.y - 140 * zoom : longEdge ? laneY : end.y) + laneOffset)
             var path = Path()
             path.move(to: start)
             path.addCurve(to: end, control1: c1, control2: c2)

@@ -17,7 +17,7 @@ struct GraphNodeCard: View {
         return .green
     }
     private var port: Int? {
-        if let service { return service.port }
+        if let port = service?.port { return port }
         return project.lastResult?.infra.fillingMissingIds().first { $0.id == node.id || $0.providedBy == node.id }?.port
     }
 
