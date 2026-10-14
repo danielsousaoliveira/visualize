@@ -1,12 +1,20 @@
 import { posix } from "node:path";
 import { hasAndroidApplicationPlugin } from "./android-plugins";
+import { androidSourceDirectory, MAX_ANDROID_SOURCE_FILES, MAX_ANDROID_SOURCE_BYTES } from "./android-source";
 import type { ScanResult, ScanService } from "./contract";
 import type { ProjectReader } from "./local-reader";
 
 export async function detectMobileApps(reader: ProjectReader, result: ScanResult): Promise<void> {
   const tree = await reader.listTree();
   const configurations = new Map<string, string[]>();
+  const androidSources = new Map<string, string[]>();
   for (const { path } of tree) {
+    const module = androidSourceDirectory(path);
+    if (module !== undefined) {
+      const sources = androidSources.get(module) ?? [];
+      sources.push(path);
+      androidSources.set(module, sources);
+    }
     if (posix.basename(path) !== "Info.plist" && !/^(?:AppConfiguration|APIConfiguration|Environment|Config)\.swift$/.test(posix.basename(path))) continue;
     let directory = posix.dirname(path);
     for (;;) {
@@ -17,26 +25,28 @@ export async function detectMobileApps(reader: ProjectReader, result: ScanResult
       directory = posix.dirname(directory);
     }
   }
-  const apps: Array<{ directory: string; platform: string; files: string[] }> = [];
+  const apps: Array<{ id: string; directory: string; platform: string; files: string[] }> = [];
   for (const entry of tree) {
     if (entry.path.endsWith(".xcodeproj/project.pbxproj")) {
       const project = await reader.readText(entry.path) ?? "";
       if (!/iphoneos|IPHONEOS_DEPLOYMENT_TARGET/.test(project)) continue;
       const directory = posix.dirname(posix.dirname(entry.path));
       const files = configurations.get(directory) ?? [];
-      apps.push({ directory, platform: "ios", files });
+      apps.push({ id: `mobile:ios:${posix.dirname(entry.path)}`, directory, platform: "ios", files });
     }
     if (/\bbuild\.gradle(?:\.kts)?$/.test(entry.path)) {
       const content = await reader.readText(entry.path) ?? "";
       if (!hasAndroidApplicationPlugin(content)) continue;
-      apps.push({ directory: posix.dirname(entry.path), platform: "android", files: [entry.path] });
+      const directory = posix.dirname(entry.path);
+      const sources = (androidSources.get(directory) ?? []).sort().slice(0, MAX_ANDROID_SOURCE_FILES);
+      apps.push({ id: `mobile:android:${directory}`, directory, platform: "android", files: [entry.path, ...sources] });
     }
   }
-  for (const { directory, platform, files } of apps) {
-    const existing = result.services.find((service) => service.rootDirectory === directory);
+  for (const { id, directory, platform, files } of apps) {
+    const existing = result.services.find((service) => service.id === id && service.category === "mobile" && service.stackId === platform);
     const service: ScanService = {
-      id: existing?.id ?? `mobile:${platform}:${directory}`,
-      name: `${directory} (${platform === "ios" ? "iOS" : "Android"})`,
+      id,
+      name: `${directory === "." ? result.project.name : directory} (${platform === "ios" ? "iOS" : "Android"})`,
       kind: "app", rootDirectory: directory, stackId: platform, category: "mobile",
       packageManager: null, installCommand: null, buildCommand: null, startCommand: null,
       port: null, hasDockerfile: false, devCommand: null,
@@ -46,10 +56,9 @@ export async function detectMobileApps(reader: ProjectReader, result: ScanResult
         dockerfile: { available: false, reason: "Mobile app", dockerfilePath: null, containerPort: null },
       },
     };
-    if (existing) Object.assign(existing, service);
-    else result.services.push(service);
+    if (!existing) result.services.push(service);
     for (const file of files) {
-      const content = await reader.readText(file) ?? "";
+      const content = await reader.readText(file, androidSourceDirectory(file) !== undefined ? MAX_ANDROID_SOURCE_BYTES : undefined) ?? "";
       for (const match of content.matchAll(/https?:\/\/(?:localhost|127\.0\.0\.1|10\.0\.2\.2):([0-9]{1,5})\b/g)) {
         const port = Number(match[1]);
         const candidates = result.services.filter((candidate) => candidate.id !== service.id && candidate.category !== "mobile" &&

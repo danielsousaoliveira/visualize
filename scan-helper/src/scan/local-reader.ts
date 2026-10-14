@@ -1,5 +1,6 @@
-import { lstat, readdir, readFile, realpath } from "node:fs/promises";
+import { lstat, open, readdir, readFile, realpath } from "node:fs/promises";
 import { join, sep } from "node:path";
+import { androidSourceDirectory } from "./android-source";
 import {
   DISCOVERED_ROOT_MARKERS,
   isIgnoredRepoPath,
@@ -9,7 +10,7 @@ import type { RepoFile } from "../engine/stack-detector";
 
 export interface ProjectReader {
   listDirectory: (path: string) => Promise<RepoFile[]>;
-  readText: (path: string) => Promise<string | undefined>;
+  readText: (path: string, maxBytes?: number) => Promise<string | undefined>;
   readJson: (path: string) => Promise<Record<string, unknown> | undefined>;
   listTree: () => Promise<RepoTreeEntry[]>;
 }
@@ -27,7 +28,7 @@ async function isContainedDirectory(root: string, absolutePath: string): Promise
 }
 
 function isTreeFileNeeded(relativePath: string, name: string): boolean {
-  return relativePath === "" || DISCOVERED_ROOT_MARKERS.has(name.toLowerCase()) || /\.(sln|csproj|fsproj)$/i.test(name) || name === "project.pbxproj" || name === "Info.plist" || /^(?:AppConfiguration|APIConfiguration|Environment|Config)\.swift$/.test(name);
+  return relativePath === "" || DISCOVERED_ROOT_MARKERS.has(name.toLowerCase()) || /\.(sln|csproj|fsproj)$/i.test(name) || androidSourceDirectory(relativePath ? `${relativePath}/${name}` : name) !== undefined || name === "project.pbxproj" || name === "Info.plist" || /^(?:AppConfiguration|APIConfiguration|Environment|Config)\.swift$/.test(name);
 }
 
 export async function listLocalTree(
@@ -74,10 +75,19 @@ export function createLocalReader(root: string): ProjectReader {
     return isInside(root, resolved) ? resolved : undefined;
   };
 
-  const readText = async (path: string) => {
+  const readText = async (path: string, maxBytes?: number) => {
     try {
       const resolved = await resolveInside(path);
-      return resolved ? await readFile(resolved, "utf-8") : undefined;
+      if (!resolved) return undefined;
+      if (maxBytes === undefined) return await readFile(resolved, "utf-8");
+      const file = await open(resolved, "r");
+      try {
+        const buffer = Buffer.alloc(maxBytes + 1);
+        const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
+        return bytesRead > maxBytes ? undefined : buffer.subarray(0, bytesRead).toString("utf-8");
+      } finally {
+        await file.close();
+      }
     } catch {
       return undefined;
     }
