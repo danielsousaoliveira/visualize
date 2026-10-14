@@ -6,6 +6,7 @@ import { envInfra, urlEndpoint } from "./infra";
 import type { ProjectReader } from "./local-reader";
 
 export interface ConnectionComposeSource {
+  composeFile?: string;
   name: string;
   dependsOn: string[];
   environment: Record<string, string>;
@@ -133,7 +134,8 @@ function resolveUrl(source: Node, nodes: Node[], infra: ScanInfra[], { key, valu
 
   if (isLoopback(host) && source.compose) return single(target, infraIds(), () => NONE);
   if (!isLoopback(host)) {
-    const named = others.filter((node) => hostName(node) === host.toLowerCase());
+    const named = others.filter((node) => hostName(node) === host.toLowerCase() &&
+      (!source.compose || node.compose?.composeFile === source.compose.composeFile));
     if (named.length === 1) return byName(target, port, named[0]!);
     const expectedInScan = !host.includes(".") || envInfra(key, value) !== undefined;
     return single(target, named.map((node) => node.id), () =>
@@ -168,6 +170,7 @@ export async function detectConnections(
   services: ScanService[],
   sources: ConnectionSource[],
   infra: ScanInfra[],
+  localSourceIds?: ReadonlySet<string>,
 ): Promise<ConnectionsResult> {
   const composeById = new Map(sources.map(({ serviceId, compose }) => [serviceId, compose]));
   const nodes: Node[] = services.map((service) => ({
@@ -194,11 +197,12 @@ export async function detectConnections(
   };
 
   for (const [index, service] of services.entries()) {
-    const node = nodes[index]!;
+    if (localSourceIds && !localSourceIds.has(service.id)) continue;
+    const node = localSourceIds ? { ...nodes[index]!, compose: undefined } : nodes[index]!;
     const compose = node.compose;
 
     for (const dependency of compose?.dependsOn ?? []) {
-      const target = nodes.find((candidate) => candidate.compose?.name === dependency);
+      const target = nodes.find((candidate) => candidate.compose?.name === dependency && candidate.compose.composeFile === compose?.composeFile);
       if (!target) {
         warnings.push(
           `Service "${node.name}": depends_on ${dependency} matches no compose service; the connection is left out.`,

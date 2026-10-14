@@ -4,6 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { scanFolder } from "../src/scan/scan-folder";
+import { connectionContexts } from "../src/scan/connection-context";
+import { detectConnections } from "../src/scan/connections";
+import { createLocalReader } from "../src/scan/local-reader";
 
 const FIXTURES_DIR = fileURLToPath(new URL("../fixtures/scan", import.meta.url));
 const workspace = mkdtempSync(join(tmpdir(), "visualize-connections-"));
@@ -369,4 +372,52 @@ describe("workspace dependencies", () => {
       { from: "apps/web", to: "apps/api", kind: "workspace-dep", label: "@repo/api" },
     ]);
   });
+});
+
+describe("cross-folder Compose context", () => {
+  it("uses published host ports to connect local apps to Docker services", async () => {
+    const root = folder("cross-folder-host-ports", {
+      "web/package.json": nodeApp("web", 3000),
+      "web/.env": "API_URL=http://localhost:15432\n",
+      "infra/compose.yaml": "services:\n  gateway:\n    image: nginx\n    ports: ['15432:5432']\n    environment:\n      INTERNAL_TOKEN: private-helper-value\n",
+    });
+    const result = await scanFolder(root);
+    const source = result.services.find((service) => service.rootDirectory === "web")!;
+    const target = result.services.find((service) => service.runModes.compose.serviceName === "gateway")!;
+    expect(result.connections).toContainEqual({ from: source.id, to: target.id, kind: "env-url", label: "API_URL" });
+    expect(JSON.stringify(result)).not.toContain("private-helper-value");
+  });
+
+  it("does not mistake container ports for published host ports", async () => {
+    const root = folder("cross-folder-container-ports", {
+      "web/package.json": nodeApp("web", 3000),
+      "web/.env": "API_URL=http://localhost:5432\n",
+      "infra/compose.yaml": "services:\n  gateway:\n    image: nginx\n    ports: ['15432:5432']\n",
+    });
+    const result = await scanFolder(root);
+    const source = result.services.find((service) => service.rootDirectory === "web")!;
+    const target = result.services.find((service) => service.runModes.compose.serviceName === "gateway")!;
+    expect(result.connections.some((edge) => edge.from === source.id && edge.to === target.id)).toBe(false);
+  });
+});
+
+
+it("keeps duplicate Compose names and nested env files in their own configuration", async () => {
+  const compose = "services:\n  api:\n    image: nginx\n    env_file: .env\n    depends_on: [db]\n  db:\n    image: postgres\n    ports: ['15432:5432']\n";
+  const root = folder("cross-folder-compose-scope", {
+    "first/compose.yaml": compose,
+    "first/.env": "API_URL=http://db:5432\n",
+    "second/compose.yaml": compose,
+    "second/.env": "API_URL=http://db:5432\n",
+  });
+  const result = await scanFolder(root);
+  const { connections } = await detectConnections(createLocalReader(result.project.rootPath), result.services, connectionContexts.get(result)!, result.infra);
+  for (const directory of ["first", "second"]) {
+    const api = result.services.find((service) => service.runModes.compose.composeFile === `${directory}/compose.yaml` && service.runModes.compose.serviceName === "api")!;
+    const db = result.services.find((service) => service.runModes.compose.composeFile === `${directory}/compose.yaml` && service.runModes.compose.serviceName === "db")!;
+    expect(connections.filter((edge) => edge.from === api.id && edge.kind === "env-url")).toEqual([
+      { from: api.id, to: db.id, kind: "env-url", label: "API_URL" },
+    ]);
+    expect(connections).toContainEqual({ from: api.id, to: db.id, kind: "depends_on", label: "depends_on" });
+  }
 });

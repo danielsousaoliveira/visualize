@@ -1,21 +1,34 @@
 import { posix } from "node:path";
+import { hasAndroidApplicationPlugin } from "./android-plugins";
 import type { ScanResult, ScanService } from "./contract";
 import type { ProjectReader } from "./local-reader";
 
 export async function detectMobileApps(reader: ProjectReader, result: ScanResult): Promise<void> {
   const tree = await reader.listTree();
+  const configurations = new Map<string, string[]>();
+  for (const { path } of tree) {
+    if (posix.basename(path) !== "Info.plist" && !/^(?:AppConfiguration|APIConfiguration|Environment|Config)\.swift$/.test(posix.basename(path))) continue;
+    let directory = posix.dirname(path);
+    for (;;) {
+      const files = configurations.get(directory) ?? [];
+      files.push(path);
+      configurations.set(directory, files);
+      if (directory === ".") break;
+      directory = posix.dirname(directory);
+    }
+  }
   const apps: Array<{ directory: string; platform: string; files: string[] }> = [];
   for (const entry of tree) {
     if (entry.path.endsWith(".xcodeproj/project.pbxproj")) {
       const project = await reader.readText(entry.path) ?? "";
       if (!/iphoneos|IPHONEOS_DEPLOYMENT_TARGET/.test(project)) continue;
       const directory = posix.dirname(posix.dirname(entry.path));
-      const files = tree.filter(({ path }) => path.startsWith(directory + "/") && (posix.basename(path) === "Info.plist" || /^(?:AppConfiguration|APIConfiguration|Environment|Config)\.swift$/.test(posix.basename(path)))).map(({ path }) => path);
+      const files = configurations.get(directory) ?? [];
       apps.push({ directory, platform: "ios", files });
     }
     if (/\bbuild\.gradle(?:\.kts)?$/.test(entry.path)) {
       const content = await reader.readText(entry.path) ?? "";
-      if (!content.split("\n").some((line) => /com\.android\.application|libs\.plugins\.android\.application/.test(line) && !/apply\s*(?:\(\s*)?false/.test(line))) continue;
+      if (!hasAndroidApplicationPlugin(content)) continue;
       apps.push({ directory: posix.dirname(entry.path), platform: "android", files: [entry.path] });
     }
   }

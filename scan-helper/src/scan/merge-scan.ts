@@ -1,4 +1,5 @@
 import { posix } from "node:path";
+import { connectionContexts } from "./connection-context";
 import type { ScanResult } from "./contract";
 import { NestedScanMapping } from "./nested-scan-mapping";
 
@@ -90,6 +91,23 @@ export function mergeScan(result: ScanResult, nested: ScanResult, directory: str
   const added = mergeServices(result, nested, mapping);
   const newFiles = nested.composeFiles.map((value) => mapping.path(value)).filter((file) => !result.composeFiles.includes(file));
   if (!added.size && !newFiles.length) return;
+  const sources = connectionContexts.get(result) ?? [];
+  for (const source of connectionContexts.get(nested) ?? []) {
+    const serviceId = mapping.resolve(source.serviceId);
+    if (!result.services.some((service) => service.id === serviceId)) continue;
+    const mapped = {
+      serviceId,
+      compose: source.compose ? {
+        ...source.compose,
+        composeFile: source.compose.composeFile ? mapping.path(source.compose.composeFile) : undefined,
+        envFiles: source.compose.envFiles.map((file) => mapping.path(file)),
+      } : undefined,
+    };
+    const existing = sources.findIndex((candidate) => candidate.serviceId === serviceId);
+    if (existing < 0) sources.push(mapped);
+    else if (!sources[existing]!.compose) sources[existing] = mapped;
+  }
+  connectionContexts.set(result, sources);
   mergeInfrastructure(result, nested, mapping);
   mergeConnections(result, nested, mapping);
   mergeEnvironment(result, nested, mapping, added);
