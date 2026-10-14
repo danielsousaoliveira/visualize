@@ -25,7 +25,6 @@ struct ServiceLogsPanel: View {
                 if expanded {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
-                            Spacer()
                             Picker("Service", selection: Binding(
                                 get: { selected ?? available.first?.id ?? "" },
                                 set: { selected = $0 }
@@ -37,12 +36,14 @@ struct ServiceLogsPanel: View {
                             .pickerStyle(.menu)
                             .fixedSize()
                             .help("Choose the service whose logs to show")
+                            .disabled(available.count < 2)
+                            Spacer()
                         }
                         if let service = available.first(where: { $0.id == (selected ?? available.first?.id) }) {
                             ServiceLogView(log: appState.logs(project: project, service: service), docker: appState.serviceRuns[appState.runKey(project: project, service: service)]?.docker, directory: project.folderPath)
                                 .id(service.id)
                         }
-                    }.padding(.top, 12)
+                    }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 12)
                 }
             }
             .onAppear { if let requestedSelection { selected = requestedSelection; expanded = true } }

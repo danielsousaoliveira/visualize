@@ -46,7 +46,7 @@ Reserve monospaced text for commands, environment variable names, and graph port
 
 ## Layout
 
-Project detail is a centered scrolling column capped at 1040pt including its 24pt padding. Groups use 12pt spacing. Section headings add 16pt above and 2pt horizontally. Service summaries use 10pt internal spacing and 16pt between metadata items; `ViewThatFits` changes metadata from a horizontal row to a vertical stack when needed.
+Project detail is a leading-aligned scrolling column capped at 1040pt including its 24pt padding. Groups use 12pt spacing. Section headings add 16pt above and 2pt horizontally. Service summaries use 10pt internal spacing and 16pt between metadata items; `ViewThatFits` changes metadata from a horizontal row to a vertical stack when needed.
 
 The menu bar popover is 400pt wide with 12pt padding and screen-height-limited scrolling. Listener rows use 10pt horizontal and 8pt vertical padding. The main window retains `NavigationSplitView`, its 200pt minimum / 240pt ideal sidebar, native toolbar, bottom Docker status, and 720 × 440pt minimum size.
 
@@ -56,7 +56,7 @@ Inset surfaces and graph cards use flat tonal layering without custom shadows or
 
 ## Shapes
 
-Use the frontmatter's rounded inset surface and softer widget hover shape. `InsetSurface` supplies the shared padding and background; its compact form removes both so running-instance details fit inside an existing service surface. Graph cards use the inset radius and measure 216 × 96pt.
+Use the frontmatter's rounded inset surface and softer widget hover shape. `InsetSurface` supplies the shared padding and background; its compact form removes both so running-instance details fit inside an existing service surface. Graph cards use the inset radius and measure 260 × 116pt.
 
 ## Components
 
@@ -66,7 +66,7 @@ Use the frontmatter's rounded inset surface and softer widget hover shape. `Inse
 
 ### Technology icons
 
-`TechnologyIcon` uses bundled Simple Icons PDF assets as templates with native label color at 0.85 opacity. Sizes are 16pt in graph and widget group headers, 18pt in widget rows and service and infrastructure surfaces, and 24pt in project headers. Unknown technologies use the menu-bar `circle.hexagongrid` symbol in light weight, rendered with the same monochrome treatment. Preserve adjacent text labels; the icons are accessibility-hidden.
+`TechnologyIcon` uses bundled Simple Icons PDF assets with filled paths and 1pt internal padding, as templates with native label color at 0.85 opacity. Sizes are 16pt in graph and widget group headers, 18pt in widget rows and service and infrastructure surfaces, and 24pt in project headers. Unknown technologies use the menu-bar `circle.hexagongrid` symbol in light weight, rendered with the same monochrome treatment. Preserve adjacent text labels; the icons are accessibility-hidden.
 
 ### Menu bar rows
 

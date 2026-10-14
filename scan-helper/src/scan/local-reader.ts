@@ -27,7 +27,7 @@ async function isContainedDirectory(root: string, absolutePath: string): Promise
 }
 
 function isTreeFileNeeded(relativePath: string, name: string): boolean {
-  return relativePath === "" || DISCOVERED_ROOT_MARKERS.has(name.toLowerCase()) || /\.(sln|csproj|fsproj)$/i.test(name);
+  return relativePath === "" || DISCOVERED_ROOT_MARKERS.has(name.toLowerCase()) || /\.(sln|csproj|fsproj)$/i.test(name) || name === "project.pbxproj" || name === "Info.plist" || /^(?:AppConfiguration|APIConfiguration|Environment|Config)\.swift$/.test(name);
 }
 
 export async function listLocalTree(

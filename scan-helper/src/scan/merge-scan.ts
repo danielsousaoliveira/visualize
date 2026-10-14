@@ -20,7 +20,7 @@ function mergeServices(result: ScanResult, nested: ScanResult, mapping: NestedSc
     result.services.push({
       ...service,
       id: serviceID,
-      name: mapping.directory === "." ? service.name : `${mapping.directory}/${service.name}`,
+      name: service.kind === "app" ? rootDirectory : mapping.directory === "." ? service.name : `${mapping.directory}/${service.name}`,
       rootDirectory,
       devCommand: service.devCommand ? { ...service.devCommand, workingDirectory: mapping.path(service.devCommand.workingDirectory) } : null,
       runModes: {

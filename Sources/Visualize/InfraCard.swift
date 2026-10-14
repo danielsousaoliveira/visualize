@@ -19,13 +19,14 @@ struct InfraCard: View {
                     }
                     .font(.callout.monospaced())
                 }
-                Text(infra.providedBy.map { "Provided by compose service: \(serviceName($0))" } ?? "No compose provider detected")
+                Text(infra.providedBy.map { "Provided by compose service: \(serviceName($0))" } ?? (infra.kind == .sqlite ? "Embedded database — runs inside the application" : "No start command detected. Add a Compose service to run this database from visualize."))
                     .foregroundStyle(.secondary)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Evidence").font(.callout.weight(.medium))
+                DisclosureGroup("Detected from") {
+                    VStack(alignment: .leading, spacing: 4) {
                     ForEach(Array(infra.evidence.enumerated()), id: \.offset) { _, evidence in
                         Text(evidence).font(.callout).foregroundStyle(.secondary)
                     }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .textSelection(.enabled)

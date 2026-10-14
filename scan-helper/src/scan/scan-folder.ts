@@ -3,6 +3,8 @@ import type { ScanResult } from "./contract";
 import { DISCOVERED_ROOT_MARKERS } from "../engine/project-root-detector";
 import { createLocalReader, type ProjectReader } from "./local-reader";
 import { toScanResult } from "./output";
+import { detectMobileApps } from "./mobile";
+import { detectConnections } from "./connections";
 import { mergeScan } from "./merge-scan";
 import { resolveFromLocal, resolveFromReader } from "./resolve";
 
@@ -49,6 +51,15 @@ export async function scanFolder(path: string): Promise<ScanResult> {
       result.warnings.push(`${directory}: ${error instanceof Error ? error.message : "Could not scan this folder"}`);
     }
   }
+  const localServices = result.services.filter((service) => service.runModes.local.available);
+  const cross = await detectConnections(reader, result.services, [], result.infra);
+  const localIds = new Set(localServices.map((service) => service.id));
+  for (const connection of cross.connections) {
+    if (localIds.has(connection.from) && !result.connections.some((edge) => edge.from === connection.from && edge.to === connection.to && edge.kind === connection.kind)) {
+      result.connections.push(connection);
+    }
+  }
+  await detectMobileApps(reader, result);
   result.warnings = [...new Set(result.warnings)];
   return result;
 }

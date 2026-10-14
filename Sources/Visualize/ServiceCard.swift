@@ -26,7 +26,9 @@ struct ServiceCard: View {
                     TechnologyIcon(technology: service.stackId ?? composeImage?.components(separatedBy: ":").first)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(service.name).font(.headline)
-                        Text(service.rootDirectory).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                        if service.rootDirectory != "." && service.rootDirectory != "./" {
+                            Text(service.rootDirectory).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                        }
                     }
                     Spacer()
                     if let run = appState.serviceRuns[appState.runKey(project: project, service: service)], run.active || run.docker != nil {
@@ -81,24 +83,28 @@ struct ServiceCard: View {
                                 Text(command.argv.map(shellArgument).joined(separator: " "))
                                     .font(.callout.monospaced())
                                     .fixedSize()
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                                     .textSelection(.enabled)
                             }
                             .help("Run in \(command.workingDirectory) • \(command.source)")
                         } else {
-                            Text("No dev command detected").font(.callout).foregroundStyle(.secondary)
+                            Text(service.runModes.local.reason ?? "No dev command detected").font(.callout).foregroundStyle(.secondary)
                         }
+                        if !ServiceMode.available(for: service).isEmpty {
                         Picker("Run mode", selection: Binding(
                             get: { appState.mode(project: project, service: service) },
                             set: { appState.setMode($0, project: project, service: service) }
                         )) {
                             ForEach(ServiceMode.available(for: service)) { mode in
-                                Text(mode.rawValue).tag(mode)
+                                Text(mode.displayName).tag(mode)
                             }
                         }
                         .pickerStyle(.menu)
                         .fixedSize()
                         .help("Choose how to run this service")
-                        .disabled(run?.active == true || run?.busy == true || run?.stopping == true)
+                        .disabled(ServiceMode.available(for: service).count < 2 || run?.active == true || run?.busy == true || run?.stopping == true)
+
+                        }
 
                         if environment == nil {
                             Text("Env status unavailable — rescan to check").font(.callout).foregroundStyle(.secondary)
@@ -117,7 +123,7 @@ struct ServiceCard: View {
                             .font(.callout)
                             .help("Show missing environment variable names")
                         }
-                    }.padding(.top, 8)
+                    }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
                 }.font(.callout).tint(.primary)
                 if !listeners.isEmpty {
                     Divider()

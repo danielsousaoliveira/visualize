@@ -5,6 +5,14 @@ enum ServiceMode: String, CaseIterable, Identifiable {
     case compose = "Compose"
     case dockerfile = "Dockerfile"
 
+    var displayName: String {
+        switch self {
+        case .local: "Local"
+        case .compose: "Docker (Compose)"
+        case .dockerfile: "Docker (Dockerfile)"
+        }
+    }
+
     var id: String { rawValue }
 
     static func available(for service: ScanService) -> [Self] {
