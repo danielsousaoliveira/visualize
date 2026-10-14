@@ -27,9 +27,11 @@ struct RunningListenersView: View {
                             .help(appState.widgetRestartAvailable(listener) ? "Restart this instance" : "Only instances started by visualize can be restarted")
                     }.disabled(busy.contains(listener.id))
                     DisclosureGroup(isExpanded: Binding(get: { expanded.contains(listener.id) }, set: { if $0 { expanded.insert(listener.id) } else { expanded.remove(listener.id) } })) {
+                    VStack(alignment: .leading, spacing: 6) {
                     Text("PID \(listener.pid)").monospacedDigit().foregroundStyle(.secondary)
                     if let branch = listener.gitBranch { Label(branch, systemImage: "arrow.triangle.branch") }
                     if let directory = listener.workingDirectory { Text(directory).textSelection(.enabled) }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
                     } label: {
                         Text(listener.startedByVisualize ? "Started by visualize" : "Started externally").foregroundStyle(.secondary)
                     }.tint(.primary)

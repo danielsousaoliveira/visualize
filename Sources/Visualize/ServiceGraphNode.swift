@@ -9,6 +9,6 @@ struct ServiceGraphNode: Identifiable, Hashable {
 
     var layoutPriority: Int {
         if !infraKinds.isEmpty { return 0 }
-        return ["frontend", "static"].contains(category ?? "") ? 2 : 1
+        return ["frontend", "fullstack", "static", "mobile"].contains(category ?? "") ? 2 : 1
     }
 }

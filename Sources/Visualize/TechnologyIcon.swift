@@ -6,7 +6,7 @@ struct TechnologyIcon: View {
     var size: CGFloat = 18
 
     private static let aliases = [
-        "nextjs": "nextdotjs", "vue": "vuedotjs", "node": "nodedotjs",
+        "mongo": "mongodb", "nextjs": "nextdotjs", "vue": "vuedotjs", "node": "nodedotjs",
         "nestjs": "nestjs", "rails": "rubyonrails", "postgres": "postgresql",
         "spring-boot": "spring", "springboot": "spring", "blazor": "dotnet",
         "sveltekit": "svelte", "cra": "react", "vite": "vite",
@@ -31,7 +31,8 @@ struct TechnologyIcon: View {
     private var image: Image {
         let key = technology?.lowercased() ?? ""
         if let image = Self.images[Self.aliases[key] ?? key] { return Image(nsImage: image) }
-        let symbol = NSImage(systemSymbolName: "circle.hexagongrid", accessibilityDescription: nil)?
+        let fallback = key == "ios" ? "iphone" : key == "android" ? "smartphone" : "circle.hexagongrid"
+        let symbol = NSImage(systemSymbolName: fallback, accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: .light))
         return symbol.map { Image(nsImage: $0) } ?? Image(systemName: "circle.hexagongrid")
     }
@@ -41,6 +42,7 @@ struct TechnologyIcon: View {
             .resizable()
             .renderingMode(.template)
             .scaledToFit()
+            .padding(1)
             .frame(width: size, height: size)
             .foregroundStyle(Color(nsColor: .labelColor).opacity(0.85))
             .accessibilityHidden(true)

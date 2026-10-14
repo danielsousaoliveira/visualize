@@ -5,7 +5,7 @@ struct GraphNodeCard: View {
     let project: Project
     let node: ServiceGraphNode
     let selected: Bool
-    static let size = CGSize(width: 216, height: 96)
+    static let size = CGSize(width: 260, height: 116)
 
     private var service: ScanService? { project.lastResult?.services.first { $0.id == node.id } }
     private var run: ServiceRun? { service.flatMap { appState.serviceRuns[appState.runKey(project: project, service: $0)] } }
@@ -17,26 +17,38 @@ struct GraphNodeCard: View {
         return .green
     }
     private var port: Int? {
-        service?.port ?? project.lastResult?.infra.fillingMissingIds().first { $0.id == node.id || $0.providedBy == node.id }?.port
+        if let port = service?.port { return port }
+        return project.lastResult?.infra.fillingMissingIds().first { $0.id == node.id || $0.providedBy == node.id }?.port
+    }
+
+    private var technology: String? {
+        if let stack = service?.stackId { return stack }
+        if let kind = node.infraKinds.first { return kind.rawValue }
+        return project.lastResult?.composeServices.first {
+            $0.name == service?.runModes.compose.serviceName && $0.composeFile == service?.runModes.compose.composeFile
+        }?.image?.components(separatedBy: ":").first
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                TechnologyIcon(technology: service?.stackId ?? node.infraKinds.first?.rawValue, size: 16)
-                Text(node.name).font(.headline).lineLimit(1)
+                TechnologyIcon(technology: technology, size: 16)
+                Text(node.name).font(.headline).lineLimit(1).truncationMode(.middle)
                 Spacer(minLength: 2)
                 Circle().fill(status).frame(width: 9, height: 9)
                     .accessibilityLabel(run?.status ?? "Stopped")
+            }
+            if let file = service?.runModes.compose.composeFile {
+                Text(file).font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             }
             HStack {
                 Text(service?.stackId ?? node.infraKinds.map(\.rawValue).joined(separator: ", "))
                     .lineLimit(1)
                 Spacer(minLength: 2)
-                Text(port.map { ":\($0)" } ?? "—").monospaced()
+                if let port { Text(":" + String(port)).monospaced() }
             }.font(.caption).foregroundStyle(.secondary)
             HStack {
-                Text(run?.status ?? "Stopped").font(.caption).lineLimit(1)
+                Text(run?.status ?? (service == nil ? (node.infraKinds.contains(.sqlite) ? "Embedded" : "Dependency") : node.category == "mobile" ? "Open in IDE" : "Stopped")).font(.caption).lineLimit(1)
                 Spacer()
                 if let service, !ServiceMode.available(for: service).isEmpty {
                     if run?.active == true {

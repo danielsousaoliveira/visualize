@@ -39,6 +39,7 @@ struct ComposeFileCard: View {
                     .font(.callout)
                 }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 } label: {
                     Label(file, systemImage: "shippingbox").font(.callout.weight(.medium))
                 }.tint(.primary)

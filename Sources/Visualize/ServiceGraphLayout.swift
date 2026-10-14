@@ -73,7 +73,7 @@ struct ServiceGraphLayout {
         graph.positions = [:]
         for (x, row) in graph.layers.enumerated() {
             for (y, id) in row.enumerated() {
-                graph.positions[id] = savedPositions[id] ?? GraphPosition(x: Double(x) * 320, y: Double(y) * 160)
+                graph.positions[id] = savedPositions[id] ?? GraphPosition(x: Double(graph.layers.count - 1 - x) * 360, y: (Double(y) - Double(row.count - 1) / 2) * 180)
             }
         }
     }

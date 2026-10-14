@@ -6,6 +6,7 @@ struct InsetSurface<Content: View>: View {
 
     var body: some View {
         content
+            .multilineTextAlignment(.leading)
             .padding(inset ? 14 : 0)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(inset ? Color(nsColor: .controlBackgroundColor) : Color.clear, in: RoundedRectangle(cornerRadius: 10))

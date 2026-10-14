@@ -1,4 +1,5 @@
 import { posix } from "node:path";
+import { connectionContexts } from "./connection-context";
 import type { ComposeService } from "../engine/compose-parser";
 import { buildProjectRootSnapshot, type MonorepoApp } from "../engine/project-root-detector";
 import type { StackResult } from "../engine/stack-detector";
@@ -426,13 +427,17 @@ export async function toScanResult(info: ProjectInfo, reader: ProjectReader): Pr
     reader,
     scanned.map(({ infraSource }) => infraSource),
   );
+  const sources = scanned.map(({ connectionSource }) => ({
+    ...connectionSource,
+    compose: connectionSource.compose ? { ...connectionSource.compose, composeFile: info.composeFileRead } : undefined,
+  }));
   const connections = await detectConnections(
     reader,
     services,
-    scanned.map(({ connectionSource }) => connectionSource),
+    sources,
     infra,
   );
-  return {
+  const result: ScanResult = {
     schemaVersion: SCHEMA_VERSION,
     project: {
       name: info.repository.name,
@@ -455,4 +460,6 @@ export async function toScanResult(info: ProjectInfo, reader: ProjectReader): Pr
       ...connections.warnings,
     ],
   };
+  connectionContexts.set(result, sources);
+  return result;
 }

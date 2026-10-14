@@ -6,7 +6,7 @@ struct ProjectDetailView: View {
     @State private var showDatabaseConnections = false
     @State private var graphSelected = false
     @State private var logServiceID: String?
-    @State private var startMode: ProjectStartMode = .configured
+    @State private var startMode: ProjectStartMode = .local
     @State private var pendingStartMode: ProjectStartMode?
     @State private var pendingCommands: [RunRecipe] = []
     @State private var showStartConfirmation = false
@@ -169,7 +169,7 @@ struct ProjectDetailView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(24)
                             .frame(maxWidth: 1040, alignment: .leading)
-                            .frame(maxWidth: .infinity, alignment: .center)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .onChange(of: logServiceID, initial: true) { _, selection in
                             if selection != nil { proxy.scrollTo("service-logs", anchor: .top) }
@@ -206,31 +206,35 @@ struct ProjectDetailView: View {
                 if isScanning { ProgressView().controlSize(.small) }
             }
             HStack {
+                if !availableStartModes(result).isEmpty {
                 Picker("Start mode", selection: $startMode) {
-                    Text("Configured").tag(ProjectStartMode.configured)
                     if result.services.contains(where: { ServiceMode.available(for: $0).contains(.local) }) {
                         Text("Local").tag(ProjectStartMode.local)
                     }
-                    if dockerStartAvailable(result) {
+                    if result.services.contains(where: { ServiceMode.available(for: $0).contains { $0 != .local } }) {
                         Text("Docker").tag(ProjectStartMode.docker)
                     }
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
                 .fixedSize()
-                .disabled(appState.projectOperations[project.id]?.busy == true || isScanning)
-                .help("Choose how to start the services; unsupported services stay stopped")
-                .onChange(of: dockerStartAvailable(result)) { _, available in
-                    if !available && startMode == .docker { startMode = .configured }
+                .disabled(availableStartModes(result).count < 2 || appState.projectOperations[project.id]?.busy == true || isScanning)
+                .help(["Choose how to start the services; unsupported services stay stopped", dockerStartUnavailableReason(result)].compactMap { $0 }.joined(separator: ". "))
+                .onChange(of: availableStartModes(result), initial: true) { _, modes in
+                    if !modes.contains(startMode) { startMode = modes.first ?? .local }
+                }
                 }
                 Button("Start all", systemImage: "play.fill") { requestStart(startMode) }
                     .disabled(appState.projectOperations[project.id]?.busy == true || isScanning || !canStart(result))
-                    .help("Start stopped services using the selected mode")
+                    .help(startMode == .docker ? dockerStartUnavailableReason(result) ?? "Start stopped services using Docker" : "Start stopped services locally")
                 Button("Stop all") { Task { await appState.stopAll(project: project) } }
                     .disabled(appState.projectOperations[project.id]?.busy == true || !hasManagedServices)
                     .help("Stop services started by visualize")
                 Button("Rescan", systemImage: "arrow.clockwise", action: onRescan).help("Scan this folder and its subfolders again")
                     .disabled(isScanning || appState.projectOperations[project.id]?.busy == true)
+            }
+            if startMode == .docker, let reason = dockerStartUnavailableReason(result) {
+                Text(reason).font(.callout).foregroundStyle(.secondary)
             }
             Text(project.folderPath)
                 .font(.callout)
@@ -255,12 +259,20 @@ struct ProjectDetailView: View {
         }
     }
 
-    private func dockerStartAvailable(_ result: ScanResult) -> Bool {
-        result.services.contains { service in
-            ServiceMode.available(for: service).contains { mode in
-                mode != .local && appState.dockerState.unavailableReason(compose: mode == .compose) == nil
-            }
+    private func availableStartModes(_ result: ScanResult) -> [ProjectStartMode] {
+        var modes: [ProjectStartMode] = []
+        if result.services.contains(where: { ServiceMode.available(for: $0).contains(.local) }) { modes.append(.local) }
+        if result.services.contains(where: { ServiceMode.available(for: $0).contains { $0 != .local } }) { modes.append(.docker) }
+        return modes
+    }
+
+    private func dockerStartUnavailableReason(_ result: ScanResult) -> String? {
+        let modes = result.services.compactMap { service in
+            ProjectStartMode.docker.resolve(service, remembered: appState.mode(project: project, service: service))
         }
+        guard !modes.isEmpty else { return nil }
+        let reasons = modes.compactMap { appState.dockerState.unavailableReason(compose: $0 == .compose) }
+        return reasons.count == modes.count ? reasons.first : nil
     }
 
     private func canStart(_ result: ScanResult) -> Bool {
